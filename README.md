@@ -66,6 +66,18 @@ sf project deploy start -d force-app -o your-org-alias
 3. Set **Lead Id** (and any optional inputs)
 4. After the action, branch on **Success** — when FALSE, **Error Message** explains why
 
+## Example: Full Convert-Screen Replacement
+
+`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, opportunity naming, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry.
+
+```
+sf project deploy start -d examples -o your-org-alias
+```
+
+Then add the **Convert Lead (WSM)** quick action to your Lead page layout's Salesforce Mobile and Lightning Experience Actions section.
+
+Two portability notes baked into the example: screen choice references can return the choice label instead of its stored value depending on runtime, so every static choice uses identical label/value strings — keep that pattern if you edit them. The Record Owner picker resolves the selection to a User Id either way (accepts an Id directly or looks it up by name).
+
 ## Test Notes
 
 The test class discovers a working converted status by trial conversion, so it passes regardless of how your org renamed or restricted Lead Status values. Test data is inserted with duplicate rules bypassed (`DuplicateRuleHeader.allowSave`). Orgs with custom required fields or validation rules on Lead, Account, or Contact may still need those satisfied for tests to run.
