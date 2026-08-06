@@ -32,7 +32,7 @@ Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Datab
 | New Owner Id | No | User or Queue to own the converted records. Blank keeps the Lead owner |
 | Opportunity Name | No | Name for the new Opportunity. Blank uses the default (Account name) |
 | Send Notification Email | No | TRUE sends the new-owner notification email. Defaults to FALSE |
-| Overwrite Lead Source | No | TRUE overwrites the Contact Lead Source with the Lead's value. Defaults to FALSE |
+| Overwrite Lead Source | No | Only applies with an existing Contact — TRUE replaces that Contact's Lead Source with the Lead's value. A new Contact inherits it automatically. Defaults to FALSE |
 | Account Name | No | Renames the Account after conversion (new or existing) |
 | Contact First Name | No | Renames the Contact first name after conversion |
 | Contact Last Name | No | Renames the Contact last name after conversion |
@@ -94,7 +94,7 @@ sf project deploy start -d force-app -o your-org-alias
 
 ## Example: Full Convert-Screen Replacement
 
-`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestion radios whose option labels are clickable record links (review, then pick), "N possible matches found" hints with links on the create-new path, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry. The existing-Contact and existing-Opportunity choices only appear after an existing Account is chosen, matching the platform rule that they must belong to it; when creating a new Account, the Contact is always new and the Opportunity radio offers only create/skip.
+`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestion radios whose option labels are clickable record links (review, then pick), "N possible matches found" hints with links on the create-new path, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry. The existing-Contact and existing-Opportunity choices only appear after an existing Account is chosen, matching the platform rule that they must belong to it; when creating a new Account, the Contact is always new and the Opportunity radio offers only create/skip. The Overwrite Lead Source checkbox appears only when converting into an existing Contact, since a new Contact inherits Lead Source regardless.
 
 ```
 sf project deploy start -d examples -o your-org-alias

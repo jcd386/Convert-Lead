@@ -30,7 +30,7 @@ public with sharing class WSM_FlowLeadConverterInputWrapper {
     @InvocableVariable(required=false label='Send Notification Email' description='TRUE sends the new-owner notification email. Defaults to FALSE.')
     public Boolean sendNotificationEmail;
 
-    @InvocableVariable(required=false label='Overwrite Lead Source' description='TRUE overwrites the Contact LeadSource with the Lead value. Defaults to FALSE.')
+    @InvocableVariable(required=false label='Overwrite Lead Source' description='Only applies when converting into an EXISTING Contact: TRUE replaces that Contact LeadSource with the Lead value. A new Contact inherits Lead Source automatically. Defaults to FALSE.')
     public Boolean overwriteLeadSource;
 
     @InvocableVariable(required=false label='Account Name' description='Renames the Account after conversion (new or existing). Leave blank to keep the default name.')

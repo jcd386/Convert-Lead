@@ -93,7 +93,7 @@
         <inputParameters>
             <name>overwriteLeadSource</name>
             <value>
-                <elementReference>Chk_Overwrite_Source</elementReference>
+                <elementReference>fOverwriteSource</elementReference>
             </value>
         </inputParameters>
         <inputParameters>
@@ -419,6 +419,11 @@
         <name>fContactLast</name>
         <dataType>String</dataType>
         <expression>IF(AND({!Rad_Contact} = "Create New Contact", {!Inp_Contact_Last} &lt;&gt; {!Get_Lead.LastName}), {!Inp_Contact_Last}, "")</expression>
+    </formulas>
+    <formulas>
+        <name>fOverwriteSource</name>
+        <dataType>Boolean</dataType>
+        <expression>AND({!Rad_Account} = "Use Existing Account", {!Rad_Contact} = "Use Existing Contact", {!Chk_Overwrite_Source})</expression>
     </formulas>
     <formulas>
         <name>fOwnerRaw</name>
@@ -1332,6 +1337,7 @@
                     </defaultValue>
                     <fieldText>Overwrite Contact Lead Source with the Lead value</fieldText>
                     <fieldType>InputField</fieldType>
+                    <helpText>&lt;p&gt;Only applies when converting into an existing Contact. A new Contact inherits the Lead Source automatically.&lt;/p&gt;</helpText>
                     <inputsOnNextNavToAssocScrn>UseStoredValues</inputsOnNextNavToAssocScrn>
                     <isRequired>true</isRequired>
                     <styleProperties>
@@ -1342,6 +1348,23 @@
                             <stringValue>12</stringValue>
                         </width>
                     </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Rad_Contact</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Con_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
                 </fields>
                 <inputParameters>
                     <name>width</name>
