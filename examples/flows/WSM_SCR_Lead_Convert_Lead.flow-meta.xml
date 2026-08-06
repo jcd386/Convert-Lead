@@ -2,6 +2,26 @@
 <Flow xmlns="http://soap.sforce.com/2006/04/metadata">
     <apiVersion>64.0</apiVersion>
     <actionCalls>
+        <name>Find_Matches</name>
+        <label>Find Matches</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <actionName>WSM_FlowLeadMatchFinder</actionName>
+        <actionType>apex</actionType>
+        <connector>
+            <targetReference>Convert_Screen</targetReference>
+        </connector>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>leadId</name>
+            <value>
+                <elementReference>recordId</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>WSM_FlowLeadMatchFinder</nameSegment>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <actionCalls>
         <name>Convert_Lead_Action</name>
         <label>Convert Lead</label>
         <locationX>0</locationX>
@@ -74,6 +94,24 @@
             <name>overwriteLeadSource</name>
             <value>
                 <elementReference>Chk_Overwrite_Source</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>accountName</name>
+            <value>
+                <elementReference>fAccountName</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>contactFirstName</name>
+            <value>
+                <elementReference>fContactFirst</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>contactLastName</name>
+            <value>
+                <elementReference>fContactLast</elementReference>
             </value>
         </inputParameters>
         <nameSegment>WSM_FlowLeadConverter</nameSegment>
@@ -152,6 +190,56 @@
         </value>
     </choices>
     <decisions>
+        <name>Acct_Suggest_Needs_Lookup</name>
+        <label>Account Suggestion Needs Lookup?</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnector>
+            <targetReference>Con_Suggest_Needs_Lookup</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>No</defaultConnectorLabel>
+        <rules>
+            <name>Yes_Resolve_Account</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>fAcctSuggestNeedsLookup</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <booleanValue>true</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Get_Suggested_Account</targetReference>
+            </connector>
+            <label>Resolve Account</label>
+        </rules>
+    </decisions>
+    <decisions>
+        <name>Con_Suggest_Needs_Lookup</name>
+        <label>Contact Suggestion Needs Lookup?</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnector>
+            <targetReference>Owner_Needs_Lookup</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>No</defaultConnectorLabel>
+        <rules>
+            <name>Yes_Resolve_Contact</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>fConSuggestNeedsLookup</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <booleanValue>true</booleanValue>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Get_Suggested_Contact</targetReference>
+            </connector>
+            <label>Resolve Contact</label>
+        </rules>
+    </decisions>
+    <decisions>
         <name>Owner_Needs_Lookup</name>
         <label>Owner Needs Lookup?</label>
         <locationX>0</locationX>
@@ -202,6 +290,22 @@
         </rules>
     </decisions>
     <dynamicChoiceSets>
+        <name>Matched_Account_Choices</name>
+        <collectionReference>Find_Matches.matchedAccounts</collectionReference>
+        <dataType>String</dataType>
+        <displayField>Name</displayField>
+        <object>Account</object>
+        <valueField>Id</valueField>
+    </dynamicChoiceSets>
+    <dynamicChoiceSets>
+        <name>Matched_Contact_Choices</name>
+        <collectionReference>Find_Matches.matchedContacts</collectionReference>
+        <dataType>String</dataType>
+        <displayField>Name</displayField>
+        <object>Contact</object>
+        <valueField>Id</valueField>
+    </dynamicChoiceSets>
+    <dynamicChoiceSets>
         <name>Status_Choices</name>
         <dataType>String</dataType>
         <displayField>MasterLabel</displayField>
@@ -243,12 +347,12 @@
     <formulas>
         <name>fAccountId</name>
         <dataType>String</dataType>
-        <expression>IF({!Rad_Account} = "Use Existing Account", {!Lkp_Account.recordId}, "")</expression>
+        <expression>IF({!Rad_Account} = "Use Existing Account", IF(NOT(ISBLANK({!Lkp_Account.recordId})), {!Lkp_Account.recordId}, {!fSuggestedAccountId}), "")</expression>
     </formulas>
     <formulas>
         <name>fContactId</name>
         <dataType>String</dataType>
-        <expression>IF({!Rad_Contact} = "Use Existing Contact", {!Lkp_Contact.recordId}, "")</expression>
+        <expression>IF({!Rad_Contact} = "Use Existing Contact", IF(NOT(ISBLANK({!Lkp_Contact.recordId})), {!Lkp_Contact.recordId}, {!fSuggestedContactId}), "")</expression>
     </formulas>
     <formulas>
         <name>fOpportunityId</name>
@@ -264,6 +368,41 @@
         <name>fDoNotCreateOpp</name>
         <dataType>Boolean</dataType>
         <expression>{!Rad_Opp} = "Do Not Create an Opportunity"</expression>
+    </formulas>
+    <formulas>
+        <name>fSuggestedAccountId</name>
+        <dataType>String</dataType>
+        <expression>IF(ISBLANK({!Rad_Acct_Suggest}), "", IF(BEGINS({!Rad_Acct_Suggest}, "001"), {!Rad_Acct_Suggest}, {!Get_Suggested_Account.Id}))</expression>
+    </formulas>
+    <formulas>
+        <name>fAcctSuggestNeedsLookup</name>
+        <dataType>Boolean</dataType>
+        <expression>AND({!Rad_Account} = "Use Existing Account", ISBLANK({!Lkp_Account.recordId}), NOT(ISBLANK({!Rad_Acct_Suggest})), NOT(BEGINS({!Rad_Acct_Suggest}, "001")))</expression>
+    </formulas>
+    <formulas>
+        <name>fSuggestedContactId</name>
+        <dataType>String</dataType>
+        <expression>IF(ISBLANK({!Rad_Con_Suggest}), "", IF(BEGINS({!Rad_Con_Suggest}, "003"), {!Rad_Con_Suggest}, {!Get_Suggested_Contact.Id}))</expression>
+    </formulas>
+    <formulas>
+        <name>fConSuggestNeedsLookup</name>
+        <dataType>Boolean</dataType>
+        <expression>AND({!Rad_Contact} = "Use Existing Contact", ISBLANK({!Lkp_Contact.recordId}), NOT(ISBLANK({!Rad_Con_Suggest})), NOT(BEGINS({!Rad_Con_Suggest}, "003")))</expression>
+    </formulas>
+    <formulas>
+        <name>fAccountName</name>
+        <dataType>String</dataType>
+        <expression>IF(AND({!Rad_Account} = "Create New Account", {!Inp_Account_Name} &lt;&gt; {!Get_Lead.Company}), {!Inp_Account_Name}, "")</expression>
+    </formulas>
+    <formulas>
+        <name>fContactFirst</name>
+        <dataType>String</dataType>
+        <expression>IF(AND({!Rad_Contact} = "Create New Contact", {!Inp_Contact_First} &lt;&gt; {!Get_Lead.FirstName}), {!Inp_Contact_First}, "")</expression>
+    </formulas>
+    <formulas>
+        <name>fContactLast</name>
+        <dataType>String</dataType>
+        <expression>IF(AND({!Rad_Contact} = "Create New Contact", {!Inp_Contact_Last} &lt;&gt; {!Get_Lead.LastName}), {!Inp_Contact_Last}, "")</expression>
     </formulas>
     <formulas>
         <name>fOwnerRaw</name>
@@ -302,6 +441,48 @@
     </processMetadataValues>
     <processType>Flow</processType>
     <recordLookups>
+        <name>Get_Suggested_Account</name>
+        <label>Get Suggested Account</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>true</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Con_Suggest_Needs_Lookup</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Name</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Rad_Acct_Suggest</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Account</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
+        <name>Get_Suggested_Contact</name>
+        <label>Get Suggested Contact</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>true</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Owner_Needs_Lookup</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Name</field>
+            <operator>EqualTo</operator>
+            <value>
+                <elementReference>Rad_Con_Suggest</elementReference>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Contact</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
         <name>Get_Owner_User</name>
         <label>Get Owner User</label>
         <locationX>0</locationX>
@@ -329,7 +510,7 @@
         <locationY>0</locationY>
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <connector>
-            <targetReference>Convert_Screen</targetReference>
+            <targetReference>Find_Matches</targetReference>
         </connector>
         <filterLogic>and</filterLogic>
         <filters>
@@ -352,7 +533,7 @@
         <allowFinish>true</allowFinish>
         <allowPause>false</allowPause>
         <connector>
-            <targetReference>Owner_Needs_Lookup</targetReference>
+            <targetReference>Acct_Suggest_Needs_Lookup</targetReference>
         </connector>
         <fields>
             <name>DT_Header</name>
@@ -477,6 +658,99 @@
                 <name>Section_Account_Column2</name>
                 <fieldType>Region</fieldType>
                 <fields>
+                    <name>DT_Acct_Match_Hint</name>
+                    <fieldText>&lt;p&gt;&lt;strong style=&quot;color: rgb(194, 107, 35);&quot;&gt;{!Find_Matches.accountMatchCount} possible existing Account match(es) found&lt;/strong&gt; — consider Use Existing Account.&lt;/p&gt;</fieldText>
+                    <fieldType>DisplayText</fieldType>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Find_Matches.hasAccountMatches</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>true</booleanValue>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
+                    <name>Inp_Account_Name</name>
+                    <dataType>String</dataType>
+                    <defaultValue>
+                        <elementReference>Get_Lead.Company</elementReference>
+                    </defaultValue>
+                    <fieldText>Account Name</fieldText>
+                    <fieldType>InputField</fieldType>
+                    <inputsOnNextNavToAssocScrn>UseStoredValues</inputsOnNextNavToAssocScrn>
+                    <isRequired>false</isRequired>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
+                    <name>Rad_Acct_Suggest</name>
+                    <choiceReferences>Matched_Account_Choices</choiceReferences>
+                    <dataType>String</dataType>
+                    <fieldText>Suggested Account Matches</fieldText>
+                    <fieldType>RadioButtons</fieldType>
+                    <helpText>&lt;p&gt;Existing Accounts matched by your duplicate rules. Pick one, or search below.&lt;/p&gt;</helpText>
+                    <isRequired>false</isRequired>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Find_Matches.hasAccountMatches</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>true</booleanValue>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
                     <name>Lkp_Account</name>
                     <extensionName>flowruntime:lookup</extensionName>
                     <fieldType>ComponentInstance</fieldType>
@@ -574,6 +848,128 @@
             <fields>
                 <name>Section_Contact_Column2</name>
                 <fieldType>Region</fieldType>
+                <fields>
+                    <name>DT_Con_Match_Hint</name>
+                    <fieldText>&lt;p&gt;&lt;strong style=&quot;color: rgb(194, 107, 35);&quot;&gt;{!Find_Matches.contactMatchCount} possible existing Contact match(es) found&lt;/strong&gt; — consider Use Existing Contact.&lt;/p&gt;</fieldText>
+                    <fieldType>DisplayText</fieldType>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Contact</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Con_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Find_Matches.hasContactMatches</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>true</booleanValue>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
+                    <name>Inp_Contact_First</name>
+                    <dataType>String</dataType>
+                    <defaultValue>
+                        <elementReference>Get_Lead.FirstName</elementReference>
+                    </defaultValue>
+                    <fieldText>Contact First Name</fieldText>
+                    <fieldType>InputField</fieldType>
+                    <inputsOnNextNavToAssocScrn>UseStoredValues</inputsOnNextNavToAssocScrn>
+                    <isRequired>false</isRequired>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Contact</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Con_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
+                    <name>Inp_Contact_Last</name>
+                    <dataType>String</dataType>
+                    <defaultValue>
+                        <elementReference>Get_Lead.LastName</elementReference>
+                    </defaultValue>
+                    <fieldText>Contact Last Name</fieldText>
+                    <fieldType>InputField</fieldType>
+                    <inputsOnNextNavToAssocScrn>UseStoredValues</inputsOnNextNavToAssocScrn>
+                    <isRequired>false</isRequired>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Contact</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Con_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
+                    <name>Rad_Con_Suggest</name>
+                    <choiceReferences>Matched_Contact_Choices</choiceReferences>
+                    <dataType>String</dataType>
+                    <fieldText>Suggested Contact Matches</fieldText>
+                    <fieldType>RadioButtons</fieldType>
+                    <helpText>&lt;p&gt;Existing Contacts matched by your duplicate rules. Pick one, or search below.&lt;/p&gt;</helpText>
+                    <isRequired>false</isRequired>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Contact</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Con_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Find_Matches.hasContactMatches</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>true</booleanValue>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
                 <fields>
                     <name>Lkp_Contact</name>
                     <extensionName>flowruntime:lookup</extensionName>

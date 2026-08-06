@@ -2,7 +2,7 @@
 
 [![Deploy to Salesforce](https://raw.githubusercontent.com/afawcett/githubsfdeploy/master/src/main/webapp/resources/img/deploy.png)](https://githubsfdeploy.herokuapp.com/app/githubdeploy/jcd386/Convert-Lead?ref=main)
 
-Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Database.convertLead()` capability to Flows and Agentforce — convert into new or existing Accounts, Contacts, and Opportunities, with per-record success/error outputs that never fault your flow.
+Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Database.convertLead()` capability to Flows and Agentforce — convert into new or existing Accounts, Contacts, and Opportunities, with duplicate-rule match suggestions, inline renames, and per-record success/error outputs that never fault your flow.
 
 ## Features
 
@@ -13,6 +13,9 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 - **Convert into existing records** — optional Account, Contact, Opportunity, and Person Account targets
 - **Full conversion options** — new owner, opportunity name, owner notification email, overwrite lead source
 - **Blank-tolerant inputs** — empty strings from Flow are treated as unset instead of throwing invalid-ID errors
+- **Duplicate-rule parity** — alert-mode duplicate rules block `Database.convertLead()` in the API context even though the standard convert screen saves through them; this action restores that parity via `DuplicateRuleHeader.allowSave` (block-mode rules still block)
+- **Inline renames** — optional Account Name, Contact First/Last Name, and Opportunity Name inputs rename the records right after conversion, like the standard convert screen's editable fields
+- **Match suggestions** — a second action, **Find Lead Conversion Matches**, runs your org's duplicate/matching rules against the Lead and returns existing Accounts and Contacts to convert into (with an exact name/email fallback that also covers orgs with no active rules)
 
 ## Inputs
 
@@ -29,6 +32,9 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 | Opportunity Name | No | Name for the new Opportunity. Blank uses the default (Account name) |
 | Send Notification Email | No | TRUE sends the new-owner notification email. Defaults to FALSE |
 | Overwrite Lead Source | No | TRUE overwrites the Contact Lead Source with the Lead's value. Defaults to FALSE |
+| Account Name | No | Renames the Account after conversion (new or existing) |
+| Contact First Name | No | Renames the Contact first name after conversion |
+| Contact Last Name | No | Renames the Contact last name after conversion |
 
 ## Outputs
 
@@ -36,10 +42,24 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 |--------|-------------|
 | Success | TRUE if the Lead converted |
 | Error Message | Populated when Success is FALSE |
+| Warning Message | Populated when the Lead converted but a post-conversion rename failed |
 | Account Id | Account the Lead was converted into |
 | Contact Id | Contact the Lead was converted into |
 | Opportunity Id | Opportunity created or converted into (null when skipped) |
 | Person Account Id | Related person account, when applicable |
+
+## Find Lead Conversion Matches
+
+The companion action replicates the standard convert screen's duplicate suggestions. Give it a Lead Id and it returns:
+
+| Output | Description |
+|--------|-------------|
+| Matched Accounts | Existing Accounts matching the Lead (record collection) |
+| Matched Contacts | Existing Contacts matching the Lead (record collection) |
+| Account/Contact Match Count | Counts for display text |
+| Has Account/Contact Matches | Booleans for component visibility |
+
+Matching runs `Datacloud.FindDuplicates` against your org's active duplicate rules using an in-memory Account (from the Lead's Company/Phone) and Contact (from the Lead's name/email/phone). When rules are missing or find nothing, an exact-match fallback fills in: Account by name, Contact by email then by name. `Max Results` caps each list (default 5).
 
 ## Why the status auto-detect matters
 
@@ -68,7 +88,7 @@ sf project deploy start -d force-app -o your-org-alias
 
 ## Example: Full Convert-Screen Replacement
 
-`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, opportunity naming, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry.
+`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestions with one-click pick and "N possible matches found" hints, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry.
 
 ```
 sf project deploy start -d examples -o your-org-alias

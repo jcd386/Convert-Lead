@@ -32,4 +32,13 @@ public with sharing class WSM_FlowLeadConverterInputWrapper {
 
     @InvocableVariable(required=false label='Overwrite Lead Source' description='TRUE overwrites the Contact LeadSource with the Lead value. Defaults to FALSE.')
     public Boolean overwriteLeadSource;
+
+    @InvocableVariable(required=false label='Account Name' description='Renames the Account after conversion (new or existing). Leave blank to keep the default name.')
+    public String accountName;
+
+    @InvocableVariable(required=false label='Contact First Name' description='Renames the Contact first name after conversion. Leave blank to keep the Lead value.')
+    public String contactFirstName;
+
+    @InvocableVariable(required=false label='Contact Last Name' description='Renames the Contact last name after conversion. Leave blank to keep the Lead value.')
+    public String contactLastName;
 }

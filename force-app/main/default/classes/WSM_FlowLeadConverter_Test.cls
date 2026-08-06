@@ -165,6 +165,71 @@ private class WSM_FlowLeadConverter_Test {
     }
 
     @isTest
+    static void testInlineRenames() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+
+        Lead l = makeLead('RenameMe', 'WSM Rename Co');
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        input.ConvertedStatusName = workingStatus;
+        input.accountName = 'WSM Renamed Account';
+        input.contactFirstName = 'Renny';
+        input.contactLastName = 'Named';
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
+        System.assertEquals(null, outputs[0].warningMessage, 'Rename warning: ' + outputs[0].warningMessage);
+        Account acct = [SELECT Name FROM Account WHERE Id = :outputs[0].accountId];
+        System.assertEquals('WSM Renamed Account', acct.Name);
+        Contact con = [SELECT FirstName, LastName FROM Contact WHERE Id = :outputs[0].contactId];
+        System.assertEquals('Renny', con.FirstName);
+        System.assertEquals('Named', con.LastName);
+    }
+
+    @isTest
+    static void testExistingOpportunityRename() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+
+        Database.DMLOptions dml = new Database.DMLOptions();
+        dml.DuplicateRuleHeader.allowSave = true;
+        Account acct = new Account(Name = 'WSM Opp Rename Account');
+        Database.insert(acct, dml);
+        Opportunity opp = new Opportunity(Name = 'Old Opp Name', AccountId = acct.Id, StageName = 'Prospecting', CloseDate = Date.today().addDays(30));
+        Database.insert(opp, dml);
+        Lead l = makeLead('OppRename', 'WSM Opp Rename Account');
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = false;
+        input.accountId = acct.Id;
+        input.opportunityId = opp.Id;
+        input.opportunityName = 'New Opp Name';
+        input.ConvertedStatusName = workingStatus;
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
+        System.assertEquals(opp.Id, outputs[0].opportunityId);
+        Opportunity renamed = [SELECT Name FROM Opportunity WHERE Id = :opp.Id];
+        System.assertEquals('New Opp Name', renamed.Name);
+    }
+
+    @isTest
     static void testBulkConvertNewAccounts() {
         String workingStatus = findWorkingConvertedStatus();
         if (workingStatus == null) {
