@@ -37,6 +37,11 @@ private class WSM_FlowLeadMatchFinder_Test {
         if (o.matchedAccountsHtml != null) {
             System.assert(o.matchedAccountsHtml.contains('<a href="/'), o.matchedAccountsHtml);
         }
+        System.assertEquals(o.accountMatchCount, o.accountOptions.size());
+        System.assertEquals(o.contactMatchCount, o.contactOptions.size());
+        for (Account shell : o.accountOptions) {
+            System.assert(shell.Name.contains('<a href="/' + shell.AccountNumber + '"'), shell.Name);
+        }
     }
 
     @isTest

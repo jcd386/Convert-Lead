@@ -182,6 +182,22 @@
         </value>
     </choices>
     <choices>
+        <name>Opp_None_B</name>
+        <choiceText>Do Not Create an Opportunity</choiceText>
+        <dataType>String</dataType>
+        <value>
+            <stringValue>Do Not Create an Opportunity</stringValue>
+        </value>
+    </choices>
+    <choices>
+        <name>Opp_New_B</name>
+        <choiceText>Create New Opportunity</choiceText>
+        <dataType>String</dataType>
+        <value>
+            <stringValue>Create New Opportunity</stringValue>
+        </value>
+    </choices>
+    <choices>
         <name>Opp_None</name>
         <choiceText>Do Not Create an Opportunity</choiceText>
         <dataType>String</dataType>
@@ -291,19 +307,19 @@
     </decisions>
     <dynamicChoiceSets>
         <name>Matched_Account_Choices</name>
-        <collectionReference>Find_Matches.matchedAccounts</collectionReference>
+        <collectionReference>Find_Matches.accountOptions</collectionReference>
         <dataType>String</dataType>
         <displayField>Name</displayField>
         <object>Account</object>
-        <valueField>Id</valueField>
+        <valueField>AccountNumber</valueField>
     </dynamicChoiceSets>
     <dynamicChoiceSets>
         <name>Matched_Contact_Choices</name>
-        <collectionReference>Find_Matches.matchedContacts</collectionReference>
+        <collectionReference>Find_Matches.contactOptions</collectionReference>
         <dataType>String</dataType>
         <displayField>Name</displayField>
-        <object>Contact</object>
-        <valueField>Id</valueField>
+        <object>Account</object>
+        <valueField>AccountNumber</valueField>
     </dynamicChoiceSets>
     <dynamicChoiceSets>
         <name>Status_Choices</name>
@@ -362,32 +378,32 @@
     <formulas>
         <name>fOppName</name>
         <dataType>String</dataType>
-        <expression>IF({!Rad_Opp} = "Create New Opportunity", {!Inp_Opp_Name}, "")</expression>
+        <expression>IF(IF({!Rad_Account} = "Use Existing Account", {!Rad_Opp} = "Create New Opportunity", {!Rad_Opp_New_Only} = "Create New Opportunity"), {!Inp_Opp_Name}, "")</expression>
     </formulas>
     <formulas>
         <name>fDoNotCreateOpp</name>
         <dataType>Boolean</dataType>
-        <expression>{!Rad_Opp} = "Do Not Create an Opportunity"</expression>
+        <expression>IF({!Rad_Account} = "Use Existing Account", {!Rad_Opp} = "Do Not Create an Opportunity", {!Rad_Opp_New_Only} = "Do Not Create an Opportunity")</expression>
     </formulas>
     <formulas>
         <name>fSuggestedAccountId</name>
         <dataType>String</dataType>
-        <expression>IF(ISBLANK({!Rad_Acct_Suggest}), "", IF(BEGINS({!Rad_Acct_Suggest}, "001"), {!Rad_Acct_Suggest}, {!Get_Suggested_Account.Id}))</expression>
+        <expression>IF(ISBLANK({!Rad_Acct_Suggest}), "", IF(BEGINS({!Rad_Acct_Suggest}, "001"), {!Rad_Acct_Suggest}, IF(CONTAINS({!Rad_Acct_Suggest}, "href=\"/001"), MID({!Rad_Acct_Suggest}, FIND("href=\"/001", {!Rad_Acct_Suggest}) + 7, 18), {!Get_Suggested_Account.Id})))</expression>
     </formulas>
     <formulas>
         <name>fAcctSuggestNeedsLookup</name>
         <dataType>Boolean</dataType>
-        <expression>AND({!Rad_Account} = "Use Existing Account", ISBLANK({!Lkp_Account.recordId}), NOT(ISBLANK({!Rad_Acct_Suggest})), NOT(BEGINS({!Rad_Acct_Suggest}, "001")))</expression>
+        <expression>AND({!Rad_Account} = "Use Existing Account", ISBLANK({!Lkp_Account.recordId}), NOT(ISBLANK({!Rad_Acct_Suggest})), NOT(BEGINS({!Rad_Acct_Suggest}, "001")), NOT(CONTAINS({!Rad_Acct_Suggest}, "href=")))</expression>
     </formulas>
     <formulas>
         <name>fSuggestedContactId</name>
         <dataType>String</dataType>
-        <expression>IF(ISBLANK({!Rad_Con_Suggest}), "", IF(BEGINS({!Rad_Con_Suggest}, "003"), {!Rad_Con_Suggest}, {!Get_Suggested_Contact.Id}))</expression>
+        <expression>IF(ISBLANK({!Rad_Con_Suggest}), "", IF(BEGINS({!Rad_Con_Suggest}, "003"), {!Rad_Con_Suggest}, IF(CONTAINS({!Rad_Con_Suggest}, "href=\"/003"), MID({!Rad_Con_Suggest}, FIND("href=\"/003", {!Rad_Con_Suggest}) + 7, 18), {!Get_Suggested_Contact.Id})))</expression>
     </formulas>
     <formulas>
         <name>fConSuggestNeedsLookup</name>
         <dataType>Boolean</dataType>
-        <expression>AND({!Rad_Account} = "Use Existing Account", {!Rad_Contact} = "Use Existing Contact", ISBLANK({!Lkp_Contact.recordId}), NOT(ISBLANK({!Rad_Con_Suggest})), NOT(BEGINS({!Rad_Con_Suggest}, "003")))</expression>
+        <expression>AND({!Rad_Account} = "Use Existing Account", {!Rad_Contact} = "Use Existing Contact", ISBLANK({!Lkp_Contact.recordId}), NOT(ISBLANK({!Rad_Con_Suggest})), NOT(BEGINS({!Rad_Con_Suggest}, "003")), NOT(CONTAINS({!Rad_Con_Suggest}, "href=")))</expression>
     </formulas>
     <formulas>
         <name>fAccountName</name>
@@ -717,36 +733,6 @@
                     </visibilityRule>
                 </fields>
                 <fields>
-                    <name>DT_Acct_Match_Links</name>
-                    <fieldText>&lt;p&gt;&lt;strong&gt;Review matches before picking:&lt;/strong&gt;&lt;/p&gt;{!Find_Matches.matchedAccountsHtml}</fieldText>
-                    <fieldType>DisplayText</fieldType>
-                    <styleProperties>
-                        <verticalAlignment>
-                            <stringValue>top</stringValue>
-                        </verticalAlignment>
-                        <width>
-                            <stringValue>12</stringValue>
-                        </width>
-                    </styleProperties>
-                    <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
-                        <conditions>
-                            <leftValueReference>Rad_Account</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <elementReference>Acct_Existing</elementReference>
-                            </rightValue>
-                        </conditions>
-                        <conditions>
-                            <leftValueReference>Find_Matches.hasAccountMatches</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <booleanValue>true</booleanValue>
-                            </rightValue>
-                        </conditions>
-                    </visibilityRule>
-                </fields>
-                <fields>
                     <name>Rad_Acct_Suggest</name>
                     <choiceReferences>Matched_Account_Choices</choiceReferences>
                     <dataType>String</dataType>
@@ -858,6 +844,16 @@
                     <fieldText>Contact</fieldText>
                     <fieldType>RadioButtons</fieldType>
                     <isRequired>true</isRequired>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
                     <styleProperties>
                         <verticalAlignment>
                             <stringValue>top</stringValue>
@@ -891,19 +887,26 @@
                         </width>
                     </styleProperties>
                     <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
-                        <conditions>
-                            <leftValueReference>Rad_Contact</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <elementReference>Con_New</elementReference>
-                            </rightValue>
-                        </conditions>
+                        <conditionLogic>1 AND (2 OR 3)</conditionLogic>
                         <conditions>
                             <leftValueReference>Find_Matches.hasContactMatches</leftValueReference>
                             <operator>EqualTo</operator>
                             <rightValue>
                                 <booleanValue>true</booleanValue>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Rad_Contact</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Con_New</elementReference>
                             </rightValue>
                         </conditions>
                     </visibilityRule>
@@ -927,7 +930,14 @@
                         </width>
                     </styleProperties>
                     <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
+                        <conditionLogic>or</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_New</elementReference>
+                            </rightValue>
+                        </conditions>
                         <conditions>
                             <leftValueReference>Rad_Contact</leftValueReference>
                             <operator>EqualTo</operator>
@@ -956,37 +966,7 @@
                         </width>
                     </styleProperties>
                     <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
-                        <conditions>
-                            <leftValueReference>Rad_Contact</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <elementReference>Con_New</elementReference>
-                            </rightValue>
-                        </conditions>
-                    </visibilityRule>
-                </fields>
-                <fields>
-                    <name>DT_Con_Requires_Acct</name>
-                    <fieldText>&lt;p&gt;&lt;em&gt;Select Use Existing Account first &#8212; an existing Contact must belong to the selected Account.&lt;/em&gt;&lt;/p&gt;</fieldText>
-                    <fieldType>DisplayText</fieldType>
-                    <styleProperties>
-                        <verticalAlignment>
-                            <stringValue>top</stringValue>
-                        </verticalAlignment>
-                        <width>
-                            <stringValue>12</stringValue>
-                        </width>
-                    </styleProperties>
-                    <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
-                        <conditions>
-                            <leftValueReference>Rad_Contact</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <elementReference>Con_Existing</elementReference>
-                            </rightValue>
-                        </conditions>
+                        <conditionLogic>or</conditionLogic>
                         <conditions>
                             <leftValueReference>Rad_Account</leftValueReference>
                             <operator>EqualTo</operator>
@@ -994,41 +974,11 @@
                                 <elementReference>Acct_New</elementReference>
                             </rightValue>
                         </conditions>
-                    </visibilityRule>
-                </fields>
-                <fields>
-                    <name>DT_Con_Match_Links</name>
-                    <fieldText>&lt;p&gt;&lt;strong&gt;Review matches before picking:&lt;/strong&gt;&lt;/p&gt;{!Find_Matches.matchedContactsHtml}</fieldText>
-                    <fieldType>DisplayText</fieldType>
-                    <styleProperties>
-                        <verticalAlignment>
-                            <stringValue>top</stringValue>
-                        </verticalAlignment>
-                        <width>
-                            <stringValue>12</stringValue>
-                        </width>
-                    </styleProperties>
-                    <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
                         <conditions>
                             <leftValueReference>Rad_Contact</leftValueReference>
                             <operator>EqualTo</operator>
                             <rightValue>
-                                <elementReference>Con_Existing</elementReference>
-                            </rightValue>
-                        </conditions>
-                        <conditions>
-                            <leftValueReference>Rad_Account</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <elementReference>Acct_Existing</elementReference>
-                            </rightValue>
-                        </conditions>
-                        <conditions>
-                            <leftValueReference>Find_Matches.hasContactMatches</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <booleanValue>true</booleanValue>
+                                <elementReference>Con_New</elementReference>
                             </rightValue>
                         </conditions>
                     </visibilityRule>
@@ -1168,6 +1118,44 @@
                             <stringValue>12</stringValue>
                         </width>
                     </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
+                </fields>
+                <fields>
+                    <name>Rad_Opp_New_Only</name>
+                    <choiceReferences>Opp_New_B</choiceReferences>
+                    <choiceReferences>Opp_None_B</choiceReferences>
+                    <dataType>String</dataType>
+                    <defaultSelectedChoiceReference>Opp_New_B</defaultSelectedChoiceReference>
+                    <fieldText>Opportunity</fieldText>
+                    <fieldType>RadioButtons</fieldType>
+                    <isRequired>true</isRequired>
+                    <styleProperties>
+                        <verticalAlignment>
+                            <stringValue>top</stringValue>
+                        </verticalAlignment>
+                        <width>
+                            <stringValue>12</stringValue>
+                        </width>
+                    </styleProperties>
+                    <visibilityRule>
+                        <conditionLogic>and</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                    </visibilityRule>
                 </fields>
                 <inputParameters>
                     <name>width</name>
@@ -1199,7 +1187,14 @@
                         </width>
                     </styleProperties>
                     <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
+                        <conditionLogic>(1 AND 2) OR (3 AND 4)</conditionLogic>
+                        <conditions>
+                            <leftValueReference>Rad_Account</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Acct_Existing</elementReference>
+                            </rightValue>
+                        </conditions>
                         <conditions>
                             <leftValueReference>Rad_Opp</leftValueReference>
                             <operator>EqualTo</operator>
@@ -1207,34 +1202,18 @@
                                 <elementReference>Opp_New</elementReference>
                             </rightValue>
                         </conditions>
-                    </visibilityRule>
-                </fields>
-                <fields>
-                    <name>DT_Opp_Requires_Acct</name>
-                    <fieldText>&lt;p&gt;&lt;em&gt;Select Use Existing Account first &#8212; an existing Opportunity must belong to the selected Account.&lt;/em&gt;&lt;/p&gt;</fieldText>
-                    <fieldType>DisplayText</fieldType>
-                    <styleProperties>
-                        <verticalAlignment>
-                            <stringValue>top</stringValue>
-                        </verticalAlignment>
-                        <width>
-                            <stringValue>12</stringValue>
-                        </width>
-                    </styleProperties>
-                    <visibilityRule>
-                        <conditionLogic>and</conditionLogic>
-                        <conditions>
-                            <leftValueReference>Rad_Opp</leftValueReference>
-                            <operator>EqualTo</operator>
-                            <rightValue>
-                                <elementReference>Opp_Existing</elementReference>
-                            </rightValue>
-                        </conditions>
                         <conditions>
                             <leftValueReference>Rad_Account</leftValueReference>
                             <operator>EqualTo</operator>
                             <rightValue>
                                 <elementReference>Acct_New</elementReference>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
+                            <leftValueReference>Rad_Opp_New_Only</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <elementReference>Opp_New_B</elementReference>
                             </rightValue>
                         </conditions>
                     </visibilityRule>

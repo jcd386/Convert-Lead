@@ -63,6 +63,7 @@ The companion action replicates the standard convert screen's duplicate suggesti
 | Account/Contact Match Count | Counts for display text |
 | Has Account/Contact Matches | Booleans for component visibility |
 | Matched Accounts/Contacts HTML | Rich-text link lists (record name links to the record, plus city/website or account/email context) — drop straight into a Display Text component |
+| Account/Contact Choice Options | Option-shell record collections for radio/picklist collection choice sets: display the `Name` field (a clickable link label with context) and use `AccountNumber` as the value (the matched record Id). Because the href embeds the Id, flows can recover the exact Id from the label with `MID(label, FIND("href=\"/001", label) + 7, 18)` in runtimes that return choice labels instead of values |
 
 Matching runs `Datacloud.FindDuplicates` against your org's active duplicate rules using an in-memory Account (from the Lead's Company/Phone) and Contact (from the Lead's name/email/phone). When rules are missing or find nothing, an exact-match fallback fills in: Account by name, Contact by email then by name. `Max Results` caps each list (default 5).
 
@@ -93,7 +94,7 @@ sf project deploy start -d force-app -o your-org-alias
 
 ## Example: Full Convert-Screen Replacement
 
-`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestions with clickable review links, one-click pick, and "N possible matches found" hints, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry. Existing-Contact and existing-Opportunity choices are gated behind choosing an existing Account first, matching the platform rule that they must belong to it.
+`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestion radios whose option labels are clickable record links (review, then pick), "N possible matches found" hints with links on the create-new path, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry. The existing-Contact and existing-Opportunity choices only appear after an existing Account is chosen, matching the platform rule that they must belong to it; when creating a new Account, the Contact is always new and the Opportunity radio offers only create/skip.
 
 ```
 sf project deploy start -d examples -o your-org-alias

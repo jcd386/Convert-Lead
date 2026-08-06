@@ -28,6 +28,8 @@ public with sharing class WSM_FlowLeadMatchFinder {
             WSM_FlowLeadMatchFinderOutputWrapper output = new WSM_FlowLeadMatchFinderOutputWrapper();
             output.matchedAccounts = new List<Account>();
             output.matchedContacts = new List<Contact>();
+            output.accountOptions = new List<Account>();
+            output.contactOptions = new List<Account>();
             output.accountMatchCount = 0;
             output.contactMatchCount = 0;
             output.hasAccountMatches = false;
@@ -93,6 +95,8 @@ public with sharing class WSM_FlowLeadMatchFinder {
                 output.hasContactMatches = output.contactMatchCount > 0;
                 output.matchedAccountsHtml = buildAccountsHtml(output.matchedAccounts);
                 output.matchedContactsHtml = buildContactsHtml(output.matchedContacts);
+                output.accountOptions = buildAccountOptions(output.matchedAccounts);
+                output.contactOptions = buildContactOptions(output.matchedContacts);
             }
         }
 
@@ -165,6 +169,46 @@ public with sharing class WSM_FlowLeadMatchFinder {
             lines.add('<p><a href="/' + c.Id + '" target="_blank" rel="noopener noreferrer">' + c.Name.escapeHtml4() + '</a>' + detail + '</p>');
         }
         return String.join(lines, '');
+    }
+
+    // Choice option shells: Name carries a rich-text link label (the href holds
+    // the target record Id, so callers can recover the exact Id from the label);
+    // AccountNumber carries the target record Id as the choice value.
+    private static List<Account> buildAccountOptions(List<Account> accounts) {
+        List<Account> options = new List<Account>();
+        for (Account a : accounts) {
+            List<String> bits = new List<String>();
+            if (String.isNotBlank(a.BillingCity)) {
+                bits.add(String.isNotBlank(a.BillingState) ? a.BillingCity + ', ' + a.BillingState : a.BillingCity);
+            }
+            if (String.isNotBlank(a.Website)) {
+                bits.add(a.Website);
+            }
+            options.add(optionShell(a.Id, a.Name, bits));
+        }
+        return options;
+    }
+
+    private static List<Account> buildContactOptions(List<Contact> contacts) {
+        List<Account> options = new List<Account>();
+        for (Contact c : contacts) {
+            List<String> bits = new List<String>();
+            if (c.AccountId != null && String.isNotBlank(c.Account.Name)) {
+                bits.add(c.Account.Name);
+            }
+            if (String.isNotBlank(c.Email)) {
+                bits.add(c.Email);
+            }
+            options.add(optionShell(c.Id, c.Name, bits));
+        }
+        return options;
+    }
+
+    private static Account optionShell(Id targetId, String rawName, List<String> detailBits) {
+        String name = rawName == null ? '' : rawName.abbreviate(100).escapeHtml4();
+        String detail = detailBits.isEmpty() ? '' : ' &mdash; ' + String.join(detailBits, ' &middot; ').abbreviate(90).escapeHtml4().replace('&amp;middot;', '&middot;');
+        String label = '<a href="/' + targetId + '" target="_blank" rel="noopener noreferrer">' + name + '</a>' + detail;
+        return new Account(Name = label.abbreviate(255), AccountNumber = String.valueOf(targetId));
     }
 
     private static Set<Id> fallbackAccountIds(Lead ld) {
