@@ -143,6 +143,7 @@ public with sharing class WSM_FlowLeadConverter {
         Map<Id, Contact> contactUpdates = new Map<Id, Contact>();
         Map<Id, Opportunity> oppUpdates = new Map<Id, Opportunity>();
         Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId = new Map<Id, List<WSM_FlowLeadConverterOutputWrapper>>();
+        Map<String, Map<String, Id>> recordTypesByObject = loadRecordTypes(inputList);
 
         for (Integer i = 0; i < inputList.size(); i++) {
             WSM_FlowLeadConverterInputWrapper input = inputList[i];
@@ -150,11 +151,22 @@ public with sharing class WSM_FlowLeadConverter {
             if (output.isSuccess != true) {
                 continue;
             }
-            if (String.isNotBlank(input.accountName) && output.accountId != null) {
-                accountUpdates.put(output.accountId, new Account(Id = output.accountId, Name = input.accountName));
+            Id acctRt = resolveRecordType(recordTypesByObject, 'Account', input.accountRecordType, output);
+            Id conRt = resolveRecordType(recordTypesByObject, 'Contact', input.contactRecordType, output);
+            Id oppRt = resolveRecordType(recordTypesByObject, 'Opportunity', input.opportunityRecordType, output);
+
+            if ((String.isNotBlank(input.accountName) || acctRt != null) && output.accountId != null) {
+                Account acct = new Account(Id = output.accountId);
+                if (String.isNotBlank(input.accountName)) {
+                    acct.Name = input.accountName;
+                }
+                if (acctRt != null) {
+                    acct.put('RecordTypeId', acctRt);
+                }
+                accountUpdates.put(output.accountId, acct);
                 trackOutput(outputsByRecordId, output.accountId, output);
             }
-            if ((String.isNotBlank(input.contactFirstName) || String.isNotBlank(input.contactLastName)) && output.contactId != null) {
+            if ((String.isNotBlank(input.contactFirstName) || String.isNotBlank(input.contactLastName) || conRt != null) && output.contactId != null) {
                 Contact con = new Contact(Id = output.contactId);
                 if (String.isNotBlank(input.contactFirstName)) {
                     con.FirstName = input.contactFirstName;
@@ -162,13 +174,24 @@ public with sharing class WSM_FlowLeadConverter {
                 if (String.isNotBlank(input.contactLastName)) {
                     con.LastName = input.contactLastName;
                 }
+                if (conRt != null) {
+                    con.put('RecordTypeId', conRt);
+                }
                 contactUpdates.put(output.contactId, con);
                 trackOutput(outputsByRecordId, output.contactId, output);
             }
             // A new Opportunity is already named via setOpportunityName; only an
             // existing Opportunity the lead converted into needs a rename.
-            if (String.isNotBlank(input.opportunityName) && String.isNotBlank(input.opportunityId) && output.opportunityId != null) {
-                oppUpdates.put(output.opportunityId, new Opportunity(Id = output.opportunityId, Name = input.opportunityName));
+            Boolean renameOpp = String.isNotBlank(input.opportunityName) && String.isNotBlank(input.opportunityId);
+            if ((renameOpp || oppRt != null) && output.opportunityId != null) {
+                Opportunity opp = new Opportunity(Id = output.opportunityId);
+                if (renameOpp) {
+                    opp.Name = input.opportunityName;
+                }
+                if (oppRt != null) {
+                    opp.put('RecordTypeId', oppRt);
+                }
+                oppUpdates.put(output.opportunityId, opp);
                 trackOutput(outputsByRecordId, output.opportunityId, output);
             }
         }
@@ -176,6 +199,46 @@ public with sharing class WSM_FlowLeadConverter {
         applyUpdateBatch(accountUpdates.values(), outputsByRecordId);
         applyUpdateBatch(contactUpdates.values(), outputsByRecordId);
         applyUpdateBatch(oppUpdates.values(), outputsByRecordId);
+    }
+
+    // Record type inputs accept an Id, DeveloperName, or label. Resolution is
+    // case-insensitive; unresolvable values surface on warningMessage.
+    private static Map<String, Map<String, Id>> loadRecordTypes(List<WSM_FlowLeadConverterInputWrapper> inputList) {
+        Map<String, Map<String, Id>> byObject = new Map<String, Map<String, Id>>();
+        Boolean anyRequested = false;
+        for (WSM_FlowLeadConverterInputWrapper input : inputList) {
+            if (String.isNotBlank(input.accountRecordType) || String.isNotBlank(input.contactRecordType) || String.isNotBlank(input.opportunityRecordType)) {
+                anyRequested = true;
+                break;
+            }
+        }
+        if (!anyRequested) {
+            return byObject;
+        }
+        for (RecordType rt : [SELECT Id, SobjectType, DeveloperName, Name FROM RecordType WHERE SobjectType IN ('Account', 'Contact', 'Opportunity') AND IsActive = true]) {
+            if (!byObject.containsKey(rt.SobjectType)) {
+                byObject.put(rt.SobjectType, new Map<String, Id>());
+            }
+            Map<String, Id> lookup = byObject.get(rt.SobjectType);
+            lookup.put(String.valueOf(rt.Id).toLowerCase(), rt.Id);
+            lookup.put(String.valueOf(rt.Id).left(15).toLowerCase(), rt.Id);
+            lookup.put(rt.DeveloperName.toLowerCase(), rt.Id);
+            lookup.put(rt.Name.toLowerCase(), rt.Id);
+        }
+        return byObject;
+    }
+
+    private static Id resolveRecordType(Map<String, Map<String, Id>> recordTypesByObject, String objectType, String requested, WSM_FlowLeadConverterOutputWrapper output) {
+        if (String.isBlank(requested)) {
+            return null;
+        }
+        Map<String, Id> lookup = recordTypesByObject.get(objectType);
+        Id resolved = lookup == null ? null : lookup.get(requested.trim().toLowerCase());
+        if (resolved == null && output.isSuccess == true) {
+            String warning = 'No active ' + objectType + ' record type matches "' + requested + '" - record type not changed.';
+            output.warningMessage = output.warningMessage == null ? warning : output.warningMessage + ' | ' + warning;
+        }
+        return resolved;
     }
 
     private static void trackOutput(Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId, Id recordId, WSM_FlowLeadConverterOutputWrapper output) {

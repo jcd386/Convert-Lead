@@ -32,6 +32,11 @@ private class WSM_FlowLeadMatchFinder_Test {
         System.assertEquals(o.matchedContacts.size(), o.contactMatchCount);
         System.assertEquals(o.accountMatchCount > 0, o.hasAccountMatches);
         System.assertEquals(o.contactMatchCount > 0, o.hasContactMatches);
+        System.assertEquals(o.hasAccountMatches, o.matchedAccountsHtml != null);
+        System.assertEquals(o.hasContactMatches, o.matchedContactsHtml != null);
+        if (o.matchedAccountsHtml != null) {
+            System.assert(o.matchedAccountsHtml.contains('<a href="/'), o.matchedAccountsHtml);
+        }
     }
 
     @isTest

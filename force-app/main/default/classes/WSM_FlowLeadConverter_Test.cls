@@ -230,6 +230,59 @@ private class WSM_FlowLeadConverter_Test {
     }
 
     @isTest
+    static void testRecordTypeAssignment() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        List<RecordType> acctRts = [SELECT Id, DeveloperName FROM RecordType WHERE SobjectType = 'Account' AND IsActive = true LIMIT 1];
+
+        Lead l = makeLead('RtPath', 'WSM Record Type Co');
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        input.ConvertedStatusName = workingStatus;
+        input.accountRecordType = acctRts.isEmpty() ? 'No Such Record Type XYZ' : acctRts[0].DeveloperName;
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
+        if (acctRts.isEmpty()) {
+            System.assertNotEquals(null, outputs[0].warningMessage);
+        } else {
+            SObject acct = Database.query('SELECT RecordTypeId FROM Account WHERE Id = \'' + outputs[0].accountId + '\'')[0];
+            System.assertEquals(acctRts[0].Id, (Id) acct.get('RecordTypeId'));
+            System.assertEquals(null, outputs[0].warningMessage, 'Warning: ' + outputs[0].warningMessage);
+        }
+    }
+
+    @isTest
+    static void testBadRecordTypeWarns() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        Lead l = makeLead('RtWarn', 'WSM Record Type Warn Co');
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        input.ConvertedStatusName = workingStatus;
+        input.accountRecordType = 'Definitely No Such Record Type';
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
+        System.assertNotEquals(null, outputs[0].warningMessage);
+        System.assert(outputs[0].warningMessage.contains('record type'), outputs[0].warningMessage);
+    }
+
+    @isTest
     static void testBulkConvertNewAccounts() {
         String workingStatus = findWorkingConvertedStatus();
         if (workingStatus == null) {

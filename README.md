@@ -15,7 +15,8 @@ Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Datab
 - **Blank-tolerant inputs** — empty strings from Flow are treated as unset instead of throwing invalid-ID errors
 - **Duplicate-rule parity** — alert-mode duplicate rules block `Database.convertLead()` in the API context even though the standard convert screen saves through them; this action restores that parity via `DuplicateRuleHeader.allowSave` (block-mode rules still block)
 - **Inline renames** — optional Account Name, Contact First/Last Name, and Opportunity Name inputs rename the records right after conversion, like the standard convert screen's editable fields
-- **Match suggestions** — a second action, **Find Lead Conversion Matches**, runs your org's duplicate/matching rules against the Lead and returns existing Accounts and Contacts to convert into (with an exact name/email fallback that also covers orgs with no active rules)
+- **Match suggestions** — a second action, **Find Lead Conversion Matches**, runs your org's duplicate/matching rules against the Lead and returns existing Accounts and Contacts to convert into (with an exact name/email fallback that also covers orgs with no active rules), including ready-to-display HTML link lists so users can click through and review each match
+- **Record types** — optional Account/Contact/Opportunity Record Type inputs (Id, DeveloperName, or label) set the record type after conversion; `Database.convertLead()` itself offers no record-type control. Uses dynamic field access so the package still deploys in orgs with no record types
 
 ## Inputs
 
@@ -35,6 +36,9 @@ Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Datab
 | Account Name | No | Renames the Account after conversion (new or existing) |
 | Contact First Name | No | Renames the Contact first name after conversion |
 | Contact Last Name | No | Renames the Contact last name after conversion |
+| Account Record Type | No | Record Type set on the Account after conversion — Id, DeveloperName, or label |
+| Contact Record Type | No | Record Type set on the Contact after conversion — Id, DeveloperName, or label |
+| Opportunity Record Type | No | Record Type set on the Opportunity after conversion — Id, DeveloperName, or label |
 
 ## Outputs
 
@@ -58,6 +62,7 @@ The companion action replicates the standard convert screen's duplicate suggesti
 | Matched Contacts | Existing Contacts matching the Lead (record collection) |
 | Account/Contact Match Count | Counts for display text |
 | Has Account/Contact Matches | Booleans for component visibility |
+| Matched Accounts/Contacts HTML | Rich-text link lists (record name links to the record, plus city/website or account/email context) — drop straight into a Display Text component |
 
 Matching runs `Datacloud.FindDuplicates` against your org's active duplicate rules using an in-memory Account (from the Lead's Company/Phone) and Contact (from the Lead's name/email/phone). When rules are missing or find nothing, an exact-match fallback fills in: Account by name, Contact by email then by name. `Max Results` caps each list (default 5).
 
@@ -88,7 +93,7 @@ sf project deploy start -d force-app -o your-org-alias
 
 ## Example: Full Convert-Screen Replacement
 
-`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestions with one-click pick and "N possible matches found" hints, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry.
+`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestions with clickable review links, one-click pick, and "N possible matches found" hints, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry. Existing-Contact and existing-Opportunity choices are gated behind choosing an existing Account first, matching the platform rule that they must belong to it.
 
 ```
 sf project deploy start -d examples -o your-org-alias

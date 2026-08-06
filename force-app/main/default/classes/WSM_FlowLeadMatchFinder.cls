@@ -91,6 +91,8 @@ public with sharing class WSM_FlowLeadMatchFinder {
                 output.contactMatchCount = output.matchedContacts.size();
                 output.hasAccountMatches = output.accountMatchCount > 0;
                 output.hasContactMatches = output.contactMatchCount > 0;
+                output.matchedAccountsHtml = buildAccountsHtml(output.matchedAccounts);
+                output.matchedContactsHtml = buildContactsHtml(output.matchedContacts);
             }
         }
 
@@ -122,6 +124,47 @@ public with sharing class WSM_FlowLeadMatchFinder {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static String buildAccountsHtml(List<Account> accounts) {
+        if (accounts.isEmpty()) {
+            return null;
+        }
+        List<String> lines = new List<String>();
+        for (Account a : accounts) {
+            String detail = '';
+            List<String> bits = new List<String>();
+            if (String.isNotBlank(a.BillingCity)) {
+                bits.add(String.isNotBlank(a.BillingState) ? a.BillingCity + ', ' + a.BillingState : a.BillingCity);
+            }
+            if (String.isNotBlank(a.Website)) {
+                bits.add(a.Website);
+            }
+            if (!bits.isEmpty()) {
+                detail = ' &mdash; ' + String.join(bits, ' &middot; ').escapeHtml4().replace('&amp;mdash;', '&mdash;').replace('&amp;middot;', '&middot;');
+            }
+            lines.add('<p><a href="/' + a.Id + '" target="_blank" rel="noopener noreferrer">' + a.Name.escapeHtml4() + '</a>' + detail + '</p>');
+        }
+        return String.join(lines, '');
+    }
+
+    private static String buildContactsHtml(List<Contact> contacts) {
+        if (contacts.isEmpty()) {
+            return null;
+        }
+        List<String> lines = new List<String>();
+        for (Contact c : contacts) {
+            List<String> bits = new List<String>();
+            if (c.AccountId != null && String.isNotBlank(c.Account.Name)) {
+                bits.add(c.Account.Name);
+            }
+            if (String.isNotBlank(c.Email)) {
+                bits.add(c.Email);
+            }
+            String detail = bits.isEmpty() ? '' : ' &mdash; ' + String.join(bits, ' &middot; ').escapeHtml4().replace('&amp;middot;', '&middot;');
+            lines.add('<p><a href="/' + c.Id + '" target="_blank" rel="noopener noreferrer">' + c.Name.escapeHtml4() + '</a>' + detail + '</p>');
+        }
+        return String.join(lines, '');
     }
 
     private static Set<Id> fallbackAccountIds(Lead ld) {

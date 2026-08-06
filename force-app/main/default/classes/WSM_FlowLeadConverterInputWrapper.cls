@@ -41,4 +41,13 @@ public with sharing class WSM_FlowLeadConverterInputWrapper {
 
     @InvocableVariable(required=false label='Contact Last Name' description='Renames the Contact last name after conversion. Leave blank to keep the Lead value.')
     public String contactLastName;
+
+    @InvocableVariable(required=false label='Account Record Type' description='Record Type to set on the Account after conversion. Accepts an Id, DeveloperName, or label. Leave blank for the default.')
+    public String accountRecordType;
+
+    @InvocableVariable(required=false label='Contact Record Type' description='Record Type to set on the Contact after conversion. Accepts an Id, DeveloperName, or label. Leave blank for the default.')
+    public String contactRecordType;
+
+    @InvocableVariable(required=false label='Opportunity Record Type' description='Record Type to set on the Opportunity after conversion. Accepts an Id, DeveloperName, or label. Leave blank for the default.')
+    public String opportunityRecordType;
 }

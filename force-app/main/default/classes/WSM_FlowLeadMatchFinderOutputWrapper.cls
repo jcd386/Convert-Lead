@@ -17,4 +17,10 @@ public with sharing class WSM_FlowLeadMatchFinderOutputWrapper {
 
     @InvocableVariable(label='Has Contact Matches')
     public Boolean hasContactMatches;
+
+    @InvocableVariable(label='Matched Accounts HTML' description='Ready-to-display rich text: one line per matched Account with a clickable link to the record.')
+    public String matchedAccountsHtml;
+
+    @InvocableVariable(label='Matched Contacts HTML' description='Ready-to-display rich text: one line per matched Contact with a clickable link to the record.')
+    public String matchedContactsHtml;
 }
