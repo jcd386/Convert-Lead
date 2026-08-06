@@ -1,5 +1,16 @@
 public with sharing class WSM_FlowLeadMatchFinder {
 
+    private static Boolean paEnabledCache;
+
+    // Person Account fields do not exist in orgs without Person Accounts, so every
+    // reference to them is dynamic and gated on this runtime check.
+    private static Boolean personAccountsEnabled() {
+        if (paEnabledCache == null) {
+            paEnabledCache = Schema.SObjectType.Account.fields.getMap().containsKey('ispersonaccount');
+        }
+        return paEnabledCache;
+    }
+
     @InvocableMethod(label='Find Lead Conversion Matches' description='Runs the org duplicate/matching rules against a Lead to suggest existing Accounts and Contacts to convert into. Falls back to exact name/email matching when no duplicate rules are active. Returns one output per input in the same order.' category='Lead')
     public static List<WSM_FlowLeadMatchFinderOutputWrapper> findMatches(List<WSM_FlowLeadMatchFinderInputWrapper> inputList) {
 
@@ -34,6 +45,7 @@ public with sharing class WSM_FlowLeadMatchFinder {
             output.contactMatchCount = 0;
             output.hasAccountMatches = false;
             output.hasContactMatches = false;
+            output.isPersonLead = false;
             outputList.add(output);
 
             Lead ld = String.isBlank(input.leadId) ? null : leadsById.get(safeId(input.leadId));
@@ -60,13 +72,20 @@ public with sharing class WSM_FlowLeadMatchFinder {
                 Lead ld = leadsById.get(safeId(inputList[idx].leadId));
                 Integer maxResults = inputList[idx].maxResults == null || inputList[idx].maxResults < 1
                     ? 5 : inputList[idx].maxResults;
+                // A blank Company means a person lead: Company is required on Leads in
+                // orgs without Person Accounts, so a company-less lead can only exist
+                // where Person Accounts are enabled.
+                Boolean personLead = String.isBlank(ld.Company);
+                output.isPersonLead = personLead;
 
                 // Duplicate rules are the primary source; the exact-match fallback also
                 // supplements when rules exist but find nothing (e.g. the standard
                 // account rule needs address data an exact-name match does not).
                 Set<Id> accIds = accountIdsPerRow == null ? null : accountIdsPerRow[j];
                 if (accIds == null || accIds.isEmpty()) {
-                    accIds = fallbackAccountIds(ld);
+                    // Person leads have no Company to match an account name against;
+                    // match existing Person Accounts on the person's email/name instead.
+                    accIds = personLead ? fallbackPersonAccountIds(ld) : fallbackAccountIds(ld);
                 }
                 Set<Id> conIds = contactIdsPerRow == null ? null : contactIdsPerRow[j];
                 if (conIds == null || conIds.isEmpty()) {
@@ -216,6 +235,27 @@ public with sharing class WSM_FlowLeadMatchFinder {
         if (ld != null && String.isNotBlank(ld.Company)) {
             for (Account a : [SELECT Id FROM Account WHERE Name = :ld.Company LIMIT 10]) {
                 ids.add(a.Id);
+            }
+        }
+        return ids;
+    }
+
+    private static Set<Id> fallbackPersonAccountIds(Lead ld) {
+        Set<Id> ids = new Set<Id>();
+        if (!personAccountsEnabled() || ld == null) {
+            return ids;
+        }
+        String email = ld.Email;
+        String firstName = ld.FirstName;
+        String lastName = ld.LastName;
+        if (String.isNotBlank(email)) {
+            for (SObject a : Database.query('SELECT Id FROM Account WHERE IsPersonAccount = true AND PersonEmail = :email LIMIT 10')) {
+                ids.add((Id) a.get('Id'));
+            }
+        }
+        if (ids.isEmpty() && String.isNotBlank(lastName)) {
+            for (SObject a : Database.query('SELECT Id FROM Account WHERE IsPersonAccount = true AND LastName = :lastName AND FirstName = :firstName LIMIT 10')) {
+                ids.add((Id) a.get('Id'));
             }
         }
         return ids;

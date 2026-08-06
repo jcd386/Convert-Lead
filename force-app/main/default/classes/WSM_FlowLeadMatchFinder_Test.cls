@@ -7,6 +7,42 @@ private class WSM_FlowLeadMatchFinder_Test {
         return dml;
     }
 
+    static Boolean personAccountsEnabled() {
+        return Schema.SObjectType.Account.fields.getMap().containsKey('ispersonaccount');
+    }
+
+    @isTest
+    static void testPersonLeadMatchesPersonAccounts() {
+        if (!personAccountsEnabled()) {
+            return;
+        }
+        List<SObject> personRts = Database.query('SELECT Id FROM RecordType WHERE SobjectType = \'Account\' AND IsPersonType = true AND IsActive = true LIMIT 1');
+        if (personRts.isEmpty()) {
+            return;
+        }
+        SObject pa = Schema.getGlobalDescribe().get('Account').newSObject();
+        pa.put('RecordTypeId', (Id) personRts[0].get('Id'));
+        pa.put('FirstName', 'Match');
+        pa.put('LastName', 'PersonProbe');
+        pa.put('PersonEmail', 'match.personprobe@wsmpa.example.com');
+        Database.insert(pa, allowDupes());
+
+        Lead pl = new Lead(FirstName = 'Match', LastName = 'PersonProbe', Email = 'match.personprobe@wsmpa.example.com');
+        Database.insert(pl, allowDupes());
+
+        WSM_FlowLeadMatchFinderInputWrapper input = new WSM_FlowLeadMatchFinderInputWrapper();
+        input.leadId = pl.Id;
+
+        Test.startTest();
+        List<WSM_FlowLeadMatchFinderOutputWrapper> outputs =
+            WSM_FlowLeadMatchFinder.findMatches(new List<WSM_FlowLeadMatchFinderInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isPersonLead, 'Blank Company should flag a person lead');
+        System.assertEquals(true, outputs[0].hasAccountMatches, 'Expected the existing Person Account to match');
+        System.assert(outputs[0].matchedAccountsHtml.contains((String) pa.get('Id')), outputs[0].matchedAccountsHtml);
+    }
+
     @isTest
     static void testFindMatches() {
         Account probeAcct = new Account(Name = 'WSM Match Probe Co');

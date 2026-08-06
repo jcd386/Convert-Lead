@@ -1,6 +1,19 @@
 @isTest
 private class WSM_FlowLeadConverter_Test {
 
+    // Person Account fields only exist when Person Accounts are enabled, so PA
+    // assertions are skipped (not failed) in orgs without them. Every PA field
+    // reference below is dynamic so this class compiles in both org shapes.
+    static Boolean personAccountsEnabled() {
+        return Schema.SObjectType.Account.fields.getMap().containsKey('ispersonaccount');
+    }
+
+    static Database.DMLOptions allowDupes() {
+        Database.DMLOptions dml = new Database.DMLOptions();
+        dml.DuplicateRuleHeader.allowSave = true;
+        return dml;
+    }
+
     static Lead makeLead(String lastName, String company) {
         Lead l = new Lead(FirstName = 'Test', LastName = lastName, Company = company);
         Database.DMLOptions dml = new Database.DMLOptions();
@@ -280,6 +293,82 @@ private class WSM_FlowLeadConverter_Test {
         System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
         System.assertNotEquals(null, outputs[0].warningMessage);
         System.assert(outputs[0].warningMessage.contains('record type'), outputs[0].warningMessage);
+    }
+
+    @isTest
+    static void testPersonLeadConvertsToPersonAccount() {
+        if (!personAccountsEnabled()) {
+            return;
+        }
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+
+        // No Company = person lead. Lead.Company is nillable only in PA orgs.
+        Lead pl = new Lead(FirstName = 'Pat', LastName = 'PersonTest');
+        Database.insert(pl, allowDupes());
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = pl.Id;
+        input.doNotCreateOpp = true;
+        input.ConvertedStatusName = workingStatus;
+        input.accountName = 'Should Not Apply To A Person Account';
+        input.contactFirstName = 'Patricia';
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
+        System.assertEquals(true, outputs[0].isPersonAccount, 'Expected a Person Account');
+        System.assertNotEquals(null, outputs[0].warningMessage, 'Expected an Account Name warning');
+        System.assert(outputs[0].warningMessage.contains('Person Account'), outputs[0].warningMessage);
+        SObject con = Database.query('SELECT FirstName FROM Contact WHERE Id = \'' + outputs[0].contactId + '\'')[0];
+        System.assertEquals('Patricia', (String) con.get('FirstName'), 'Contact rename should work on a Person Account');
+    }
+
+    @isTest
+    static void testConvertIntoExistingPersonAccountResolvesContact() {
+        if (!personAccountsEnabled()) {
+            return;
+        }
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        List<SObject> personRts = Database.query('SELECT Id FROM RecordType WHERE SobjectType = \'Account\' AND IsPersonType = true AND IsActive = true LIMIT 1');
+        if (personRts.isEmpty()) {
+            return;
+        }
+
+        SObject pa = Schema.getGlobalDescribe().get('Account').newSObject();
+        pa.put('RecordTypeId', (Id) personRts[0].get('Id'));
+        pa.put('FirstName', 'Existing');
+        pa.put('LastName', 'PersonAcct');
+        Database.insert(pa, allowDupes());
+        Id paId = (Id) pa.get('Id');
+
+        Lead pl = new Lead(FirstName = 'Existing', LastName = 'PersonAcct');
+        Database.insert(pl, allowDupes());
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = pl.Id;
+        input.doNotCreateOpp = true;
+        input.ConvertedStatusName = workingStatus;
+        input.accountId = paId;
+        // Deliberately no contactId: the action must resolve the person Contact.
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
+        System.assertEquals(paId, outputs[0].accountId);
+        System.assertEquals(true, outputs[0].isPersonAccount);
+        System.assertNotEquals(null, outputs[0].contactId, 'Person Contact should have been resolved');
     }
 
     @isTest

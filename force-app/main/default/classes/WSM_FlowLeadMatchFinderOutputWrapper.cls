@@ -29,4 +29,7 @@ public with sharing class WSM_FlowLeadMatchFinderOutputWrapper {
 
     @InvocableVariable(label='Contact Choice Options' description='For radio/picklist collection choice sets: display the Name field (a clickable link label) and use AccountNumber as the value (the matched Contact Id).')
     public List<Account> contactOptions;
+
+    @InvocableVariable(label='Is Person Lead' description='TRUE when the Lead has no Company, meaning it converts to a Person Account. Always FALSE in orgs without Person Accounts, where Company is required.')
+    public Boolean isPersonLead;
 }

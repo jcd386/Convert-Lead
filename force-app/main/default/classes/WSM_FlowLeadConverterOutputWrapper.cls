@@ -18,6 +18,9 @@ public with sharing class WSM_FlowLeadConverterOutputWrapper {
     @InvocableVariable(label='Opportunity Id')
     public String opportunityId;
 
-    @InvocableVariable(label='Person Account Id')
+    @InvocableVariable(label='Person Account Id' description='Populated only when converting INTO an existing person account via the Person Account Id input.')
     public String personAccountId;
+
+    @InvocableVariable(label='Is Person Account' description='TRUE when the converted Account is a Person Account. Always FALSE in orgs without Person Accounts.')
+    public Boolean isPersonAccount;
 }

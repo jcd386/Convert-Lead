@@ -406,19 +406,34 @@
         <expression>AND({!Rad_Account} = "Use Existing Account", {!Rad_Contact} = "Use Existing Contact", ISBLANK({!Lkp_Contact.recordId}), NOT(ISBLANK({!Rad_Con_Suggest})), NOT(BEGINS({!Rad_Con_Suggest}, "003")), NOT(CONTAINS({!Rad_Con_Suggest}, "href=")))</expression>
     </formulas>
     <formulas>
+        <name>fCompanySuffix</name>
+        <dataType>String</dataType>
+        <expression>IF(ISBLANK({!Get_Lead.Company}), "", " (" &amp; {!Get_Lead.Company} &amp; ")")</expression>
+    </formulas>
+    <formulas>
+        <name>fDefaultOppName</name>
+        <dataType>String</dataType>
+        <expression>IF(ISBLANK({!Get_Lead.Company}), {!Get_Lead.Name}, {!Get_Lead.Company})</expression>
+    </formulas>
+    <formulas>
+        <name>fIsPersonLead</name>
+        <dataType>Boolean</dataType>
+        <expression>ISBLANK({!Get_Lead.Company})</expression>
+    </formulas>
+    <formulas>
         <name>fAccountName</name>
         <dataType>String</dataType>
-        <expression>IF(AND({!Rad_Account} = "Create New Account", {!Inp_Account_Name} &lt;&gt; {!Get_Lead.Company}), {!Inp_Account_Name}, "")</expression>
+        <expression>IF(AND(NOT({!fIsPersonLead}), {!Rad_Account} = "Create New Account", {!Inp_Account_Name} &lt;&gt; {!Get_Lead.Company}), {!Inp_Account_Name}, "")</expression>
     </formulas>
     <formulas>
         <name>fContactFirst</name>
         <dataType>String</dataType>
-        <expression>IF(AND({!Rad_Contact} = "Create New Contact", {!Inp_Contact_First} &lt;&gt; {!Get_Lead.FirstName}), {!Inp_Contact_First}, "")</expression>
+        <expression>IF(AND(OR({!fIsPersonLead}, {!Rad_Contact} = "Create New Contact"), {!Inp_Contact_First} &lt;&gt; {!Get_Lead.FirstName}), {!Inp_Contact_First}, "")</expression>
     </formulas>
     <formulas>
         <name>fContactLast</name>
         <dataType>String</dataType>
-        <expression>IF(AND({!Rad_Contact} = "Create New Contact", {!Inp_Contact_Last} &lt;&gt; {!Get_Lead.LastName}), {!Inp_Contact_Last}, "")</expression>
+        <expression>IF(AND(OR({!fIsPersonLead}, {!Rad_Contact} = "Create New Contact"), {!Inp_Contact_Last} &lt;&gt; {!Get_Lead.LastName}), {!Inp_Contact_Last}, "")</expression>
     </formulas>
     <formulas>
         <name>fOverwriteSource</name>
@@ -558,7 +573,7 @@
         </connector>
         <fields>
             <name>DT_Header</name>
-            <fieldText>&lt;p&gt;&lt;strong style=&quot;font-size: 16px;&quot;&gt;Converting: {!Get_Lead.Name}&lt;/strong&gt; ({!Get_Lead.Company})&lt;/p&gt;&lt;p&gt;Current Status: {!Get_Lead.Status}&lt;/p&gt;</fieldText>
+            <fieldText>&lt;p&gt;&lt;strong style=&quot;font-size: 16px;&quot;&gt;Converting: {!Get_Lead.Name}&lt;/strong&gt;{!fCompanySuffix}&lt;/p&gt;&lt;p&gt;Current Status: {!Get_Lead.Status}&lt;/p&gt;</fieldText>
             <fieldType>DisplayText</fieldType>
             <styleProperties>
                 <verticalAlignment>
@@ -568,6 +583,29 @@
                     <stringValue>12</stringValue>
                 </width>
             </styleProperties>
+        </fields>
+        <fields>
+            <name>DT_Person_Lead</name>
+            <fieldText>&lt;p&gt;&lt;strong style=&quot;color: rgb(6, 106, 173);&quot;&gt;Person lead&lt;/strong&gt; &amp;mdash; this Lead has no Company, so it converts to a &lt;strong&gt;Person Account&lt;/strong&gt;. The account name comes from the Contact first and last name below.&lt;/p&gt;</fieldText>
+            <fieldType>DisplayText</fieldType>
+            <styleProperties>
+                <verticalAlignment>
+                    <stringValue>top</stringValue>
+                </verticalAlignment>
+                <width>
+                    <stringValue>12</stringValue>
+                </width>
+            </styleProperties>
+            <visibilityRule>
+                <conditionLogic>and</conditionLogic>
+                <conditions>
+                    <leftValueReference>fIsPersonLead</leftValueReference>
+                    <operator>EqualTo</operator>
+                    <rightValue>
+                        <booleanValue>true</booleanValue>
+                    </rightValue>
+                </conditions>
+            </visibilityRule>
         </fields>
         <fields>
             <name>Section_Status</name>
@@ -729,6 +767,13 @@
                     <visibilityRule>
                         <conditionLogic>and</conditionLogic>
                         <conditions>
+                            <leftValueReference>fIsPersonLead</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>false</booleanValue>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
                             <leftValueReference>Rad_Account</leftValueReference>
                             <operator>EqualTo</operator>
                             <rightValue>
@@ -852,6 +897,13 @@
                     <visibilityRule>
                         <conditionLogic>and</conditionLogic>
                         <conditions>
+                            <leftValueReference>fIsPersonLead</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>false</booleanValue>
+                            </rightValue>
+                        </conditions>
+                        <conditions>
                             <leftValueReference>Rad_Account</leftValueReference>
                             <operator>EqualTo</operator>
                             <rightValue>
@@ -892,7 +944,14 @@
                         </width>
                     </styleProperties>
                     <visibilityRule>
-                        <conditionLogic>1 AND (2 OR 3)</conditionLogic>
+                        <conditionLogic>1 AND 2 AND (3 OR 4)</conditionLogic>
+                        <conditions>
+                            <leftValueReference>fIsPersonLead</leftValueReference>
+                            <operator>EqualTo</operator>
+                            <rightValue>
+                                <booleanValue>false</booleanValue>
+                            </rightValue>
+                        </conditions>
                         <conditions>
                             <leftValueReference>Find_Matches.hasContactMatches</leftValueReference>
                             <operator>EqualTo</operator>
@@ -1177,7 +1236,7 @@
                     <name>Inp_Opp_Name</name>
                     <dataType>String</dataType>
                     <defaultValue>
-                        <elementReference>Get_Lead.Company</elementReference>
+                        <elementReference>fDefaultOppName</elementReference>
                     </defaultValue>
                     <fieldText>Opportunity Name</fieldText>
                     <fieldType>InputField</fieldType>
@@ -1409,6 +1468,29 @@
                     <stringValue>12</stringValue>
                 </width>
             </styleProperties>
+        </fields>
+        <fields>
+            <name>DT_Success_Person</name>
+            <fieldText>&lt;p style=&quot;text-align: center;&quot;&gt;Converted to a &lt;strong&gt;Person Account&lt;/strong&gt;.&lt;/p&gt;</fieldText>
+            <fieldType>DisplayText</fieldType>
+            <styleProperties>
+                <verticalAlignment>
+                    <stringValue>top</stringValue>
+                </verticalAlignment>
+                <width>
+                    <stringValue>12</stringValue>
+                </width>
+            </styleProperties>
+            <visibilityRule>
+                <conditionLogic>and</conditionLogic>
+                <conditions>
+                    <leftValueReference>Convert_Lead_Action.isPersonAccount</leftValueReference>
+                    <operator>EqualTo</operator>
+                    <rightValue>
+                        <booleanValue>true</booleanValue>
+                    </rightValue>
+                </conditions>
+            </visibilityRule>
         </fields>
         <fields>
             <name>DT_Links</name>
