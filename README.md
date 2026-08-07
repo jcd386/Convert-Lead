@@ -81,7 +81,9 @@ In a Person Account org, a Lead with a **blank Company** converts into a Person 
 
 ### It does not require Person Accounts
 
-Person Account fields (`IsPersonAccount`, `Account.FirstName`, `PersonContactId`, `RecordType.IsPersonType`) **do not exist** in orgs without Person Accounts — a static Apex or SOQL reference to any of them fails to compile there and would block the whole package from installing. Every such reference in this package is therefore dynamic (`sobject.get`/`put`, `Database.query`) behind a runtime existence check, and the Person Account logic simply never runs where the feature is off. The example flow detects a person lead purely from `Lead.Company` being blank — a standard field present in every org — so it deploys anywhere too. Both the Apex and the flow are verified deploying, activating, and passing the full test suite in a Person-Account org and a non-Person-Account org.
+Person Account fields (`IsPersonAccount`, `Account.FirstName`, `PersonContactId`, `RecordType.IsPersonType`) **do not exist** in orgs without Person Accounts — a static Apex or SOQL reference to any of them fails to compile there and would block the whole package from installing. Every such reference in this package is therefore dynamic (`sobject.get`/`put`, `Database.query`) behind a runtime existence check, and the Person Account logic simply never runs where the feature is off. The package is verified deploying and passing the full test suite in both a Person-Account org and a non-Person-Account org.
+
+If you build your own screen for this, note that `Lead.Company` is nillable **only** in Person Account orgs — it is required otherwise — so "Company is blank" is a person-lead test that needs no Person Account field reference and therefore works in any org.
 
 ## Why the status auto-detect matters
 
@@ -108,18 +110,6 @@ sf project deploy start -d force-app -o your-org-alias
 3. Set **Lead Id** (and any optional inputs)
 4. After the action, branch on **Success** — when FALSE, **Error Message** explains why
 
-## Example: Full Convert-Screen Replacement
-
-`examples/` contains a ready-to-use Screen Flow (`WSM_SCR_Lead_Convert_Lead`) plus a Lead quick action that together replace the out-of-the-box convert screen: duplicate-match suggestion radios whose option labels are clickable record links (review, then pick), "N possible matches found" hints with links on the create-new path, converted-status picker with auto-detect default, new-vs-existing Account/Contact/Opportunity with searchable lookups, inline editing of the new Account/Contact/Opportunity names, owner reassignment, notification email, and lead source overwrite — with a success screen linking the converted records and an error screen that lets the user fix inputs and retry. For a person lead it shows a "Person lead" banner, hides the Account Name field (the name comes from the person), and drops the Contact new/existing choice since the person Contact travels with the account. The existing-Contact and existing-Opportunity choices only appear after an existing Account is chosen, matching the platform rule that they must belong to it; when creating a new Account, the Contact is always new and the Opportunity radio offers only create/skip. The Overwrite Lead Source checkbox appears only when converting into an existing Contact, since a new Contact inherits Lead Source regardless.
-
-```
-sf project deploy start -d examples -o your-org-alias
-```
-
-Then add the **Convert Lead (WSM)** quick action to your Lead page layout's Salesforce Mobile and Lightning Experience Actions section.
-
-Two portability notes baked into the example: screen choice references can return the choice label instead of its stored value depending on runtime, so every static choice uses identical label/value strings — keep that pattern if you edit them. The Record Owner picker resolves the selection to a User Id either way (accepts an Id directly or looks it up by name).
-
 ## Test Notes
 
 The test class discovers a working converted status by trial conversion, so it passes regardless of how your org renamed or restricted Lead Status values. Person Account assertions are skipped (not failed) in orgs without Person Accounts, and every Person Account reference in the tests is dynamic so they compile in both org shapes. Test data is inserted with duplicate rules bypassed (`DuplicateRuleHeader.allowSave`). Orgs with custom required fields or validation rules on Lead, Account, or Contact may still need those satisfied for tests to run.
@@ -128,11 +118,13 @@ The test class discovers a working converted status by trial conversion, so it p
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| `WSM_FlowLeadConverter` | Apex Class | Convert Lead invocable action |
-| `WSM_FlowLeadMatchFinder` | Apex Class | Find Lead Conversion Matches invocable action |
+| `WSM_FlowLeadConverter` | Apex Class | **Convert Lead** invocable action |
+| `WSM_FlowLeadConverterInputWrapper` | Apex Class | Convert Lead input variables |
+| `WSM_FlowLeadConverterOutputWrapper` | Apex Class | Convert Lead output variables |
+| `WSM_FlowLeadConverter_Test` | Apex Class | Convert Lead test coverage |
+| `WSM_FlowLeadMatchFinder` | Apex Class | **Find Lead Conversion Matches** invocable action |
 | `WSM_FlowLeadMatchFinderInputWrapper` | Apex Class | Match finder input variables |
 | `WSM_FlowLeadMatchFinderOutputWrapper` | Apex Class | Match finder output variables |
 | `WSM_FlowLeadMatchFinder_Test` | Apex Class | Match finder test coverage |
-| `WSM_FlowLeadConverterInputWrapper` | Apex Class | Input variables |
-| `WSM_FlowLeadConverterOutputWrapper` | Apex Class | Output variables |
-| `WSM_FlowLeadConverter_Test` | Apex Class | Test coverage |
+
+Apex only — no flows, layouts, or components are installed, so the actions drop into whatever UI you already have.
