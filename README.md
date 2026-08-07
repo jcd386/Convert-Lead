@@ -12,7 +12,8 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 - **Case-insensitive status matching** — "converted" and "Converted" both work; bad values return the list of valid ones in the error message
 - **Convert into existing records** — optional Account, Contact, Opportunity, and Person Account targets
 - **Full conversion options** — new owner, opportunity name, owner notification email, overwrite lead source
-- **Blank-tolerant inputs** — empty strings from Flow are treated as unset instead of throwing invalid-ID errors
+- **Blank-tolerant, type-checked inputs** — empty strings from Flow are treated as unset, and an Id of the wrong object is rejected by name ("Existing Contact Id must be a Contact Id, but an Account Id was supplied") instead of failing later with an opaque platform error
+- **Bulk-chunked** — conversions are submitted in batches of 100, the documented maximum for `Database.convertLead`, so a record-triggered flow handing over 200 records is safe
 - **Duplicate-rule parity** — alert-mode duplicate rules block `Database.convertLead()` in the API context even though the standard convert screen saves through them; this action restores that parity via `DuplicateRuleHeader.allowSave` (block-mode rules still block)
 - **Inline renames** — optional Account Name, Contact First/Last Name, and Opportunity Name inputs rename the records right after conversion, like the standard convert screen's editable fields
 - **Record types** — optional Account/Contact/Opportunity Record Type inputs (Id, DeveloperName, or label) set the record type after conversion; `Database.convertLead()` itself offers no record-type control. Uses dynamic field access so the package still deploys in orgs with no record types
@@ -39,6 +40,7 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 | Account Record Type | No | Record Type set on the Account after conversion — Id, DeveloperName, or label. Person/business type mismatches are caught with a warning instead of a platform error |
 | Contact Record Type | No | Record Type set on the Contact after conversion — Id, DeveloperName, or label |
 | Opportunity Record Type | No | Record Type set on the Opportunity after conversion — Id, DeveloperName, or label |
+| Enforce User Permissions | No | TRUE requires the running user to hold **Convert Leads** and applies their field-level security to post-conversion updates. Defaults to FALSE — see Security below |
 
 ## Outputs
 
@@ -46,7 +48,7 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 |--------|-------------|
 | Success | TRUE if the Lead converted |
 | Error Message | Populated when Success is FALSE |
-| Warning Message | Populated when the Lead converted but a post-conversion rename failed |
+| Warning Message | Populated when the Lead converted but something after it needs attention — a rename that failed, a field blocked by field-level security, an ignored input, or a value another Lead in the same batch overrode |
 | Account Id | Account the Lead was converted into |
 | Contact Id | Contact the Lead was converted into |
 | Opportunity Id | Opportunity created or converted into (null when skipped) |
@@ -58,7 +60,7 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 In a Person Account org, a Lead with a **blank Company** converts into a Person Account — that part is platform behavior, and this action passes straight through to it. What the action adds on top:
 
 - **Detects the result.** `Database.convertLead()` gives you no signal that it produced a Person Account (`getRelatedPersonAccountId()` stays null for newly created ones), so the action queries it back and returns **Is Person Account**.
-- **Resolves the person Contact.** Converting into an existing Person Account requires its person Contact as well as the account. Pass just the Person Account Id as **Existing Account Id** and the action fills in `PersonContactId` for you.
+- **Handles the person Contact for you.** The Apex Reference is explicit that converting into a Person Account must specify *only* the account — passing a Contact Id there is documented to error. Pass the Person Account Id as **Existing Account Id** and leave Existing Contact Id blank; if you supply one anyway it is ignored, with a warning explaining why.
 - **Redirects the Account rename.** `Account.Name` is read-only on a Person Account (it is derived from the person's first/last name), so an **Account Name** input there returns a clear warning telling you to use **Contact First Name / Contact Last Name** instead — which do work, and update the account's name.
 - **Validates record types.** A Person Account needs a person-type record type and a business account needs a business one; a mismatch is caught with an explanatory warning rather than a raw platform error.
 
@@ -68,9 +70,20 @@ Person Account fields (`IsPersonAccount`, `Account.FirstName`, `PersonContactId`
 
 If you build your own screen for this, note that `Lead.Company` is nillable **only** in Person Account orgs — it is required otherwise — so "Company is blank" is a person-lead test that needs no Person Account field reference and therefore works in any org.
 
+## Security
+
+Like all Apex, this action runs in **system context**. Two consequences worth understanding before you expose it:
+
+- `Database.convertLead()` succeeds even for a user who does **not** have the **Convert Leads** permission. Anyone who can run a Flow containing this action can convert leads. That is sometimes exactly what you want — removing the permission hides the standard Convert button and the Path's convert option, leaving your flow as the only route — but it is a privilege path either way.
+- The post-conversion renames and record-type writes bypass field-level security, so a user without edit access to `Account.Name` can still rename through the action.
+
+Set **Enforce User Permissions** to TRUE to opt out of both: the action then refuses to convert for a user lacking **Convert Leads**, and strips any field the running user cannot edit from the post-conversion updates, reporting what it dropped on `warningMessage`. It defaults to FALSE so existing behavior is unchanged.
+
 ## Why the status auto-detect matters
 
 `Database.convertLead()` requires a converted Lead Status, but the valid value varies org to org — and it gets worse: if your Lead record types use business processes, an org-wide converted status can still be **invalid for a specific lead's record type**. This action handles both cases. Pass a status name if you want control; leave it blank and the action retries across every converted status in the org until one works for that lead.
+
+Retries fire **only** when the platform rejects the status itself (`INVALID_STATUS`). A conversion that fails for any other reason — a validation rule, a bad Id, a duplicate block — is reported immediately, so you get the real cause rather than a status error from a later attempt, and a failing row costs one DML statement instead of one per candidate status.
 
 ## Installation
 
@@ -95,7 +108,7 @@ sf project deploy start -d force-app -o your-org-alias
 
 ## Test Notes
 
-The test class discovers a working converted status by trial conversion, so it passes regardless of how your org renamed or restricted Lead Status values. Person Account assertions are skipped (not failed) in orgs without Person Accounts, and every Person Account reference in the tests is dynamic so they compile in both org shapes. Test data is inserted with duplicate rules bypassed (`DuplicateRuleHeader.allowSave`). Orgs with custom required fields or validation rules on Lead, Account, or Contact may still need those satisfied for tests to run.
+The test class discovers a working converted status by trial conversion and derives its expectations from your org's own configuration, so it passes regardless of how your org renamed or restricted Lead Status values. Person Account assertions are skipped (not failed) in orgs without Person Accounts, and every Person Account reference in the tests is dynamic so they compile in both org shapes. Test data is inserted with duplicate rules bypassed (`DuplicateRuleHeader.allowSave`). Orgs with custom required fields or validation rules on Lead, Account, or Contact may still need those satisfied for tests to run.
 
 ## Components
 

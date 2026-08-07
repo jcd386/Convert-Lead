@@ -1,6 +1,15 @@
 public with sharing class WSM_FlowLeadConverter {
 
+    // Database.convertLead is documented as supporting at most 100 LeadConvert
+    // objects per call; a bulk flow can hand this action up to 200 at once.
+    private static final Integer CONVERT_CHUNK_SIZE = 100;
+    @TestVisible
+    private static Integer chunkSize = CONVERT_CHUNK_SIZE;
+
     private static Boolean paEnabledCache;
+    private static Boolean canConvertCache;
+
+    public class ConvertInputException extends Exception {}
 
     // Person Account fields (IsPersonAccount, PersonContactId, RecordType.IsPersonType)
     // do NOT exist in orgs without Person Accounts — a static reference would fail to
@@ -11,6 +20,20 @@ public with sharing class WSM_FlowLeadConverter {
             paEnabledCache = Schema.SObjectType.Account.fields.getMap().containsKey('ispersonaccount');
         }
         return paEnabledCache;
+    }
+
+    // Apex runs in system context, so Database.convertLead succeeds even for a user
+    // without "Convert Leads". Callers who want the platform's own gate can opt in.
+    private static Boolean runningUserCanConvertLeads() {
+        if (canConvertCache == null) {
+            canConvertCache = ![
+                SELECT Id FROM PermissionSetAssignment
+                WHERE AssigneeId = :UserInfo.getUserId()
+                AND PermissionSet.PermissionsConvertLeads = true
+                LIMIT 1
+            ].isEmpty();
+        }
+        return canConvertCache;
     }
 
     private static Map<Id, SObject> loadAccountPersonInfo(Set<Id> accountIds) {
@@ -33,7 +56,11 @@ public with sharing class WSM_FlowLeadConverter {
     }
 
     private static void addWarning(WSM_FlowLeadConverterOutputWrapper output, String warning) {
-        output.warningMessage = output.warningMessage == null ? warning : output.warningMessage + ' | ' + warning;
+        if (output.warningMessage == null) {
+            output.warningMessage = warning;
+        } else if (!output.warningMessage.contains(warning)) {
+            output.warningMessage += ' | ' + warning;
+        }
     }
 
     private static Id safeId(String raw) {
@@ -47,6 +74,32 @@ public with sharing class WSM_FlowLeadConverter {
         }
     }
 
+    // Well-formed Ids of the wrong object produce opaque platform errors ("invalid
+    // cross reference id"), so check the type up front and say which input is wrong.
+    private static Id typedId(String raw, List<Schema.SObjectType> allowed, String label) {
+        if (String.isBlank(raw)) {
+            return null;
+        }
+        Id parsed;
+        try {
+            parsed = Id.valueOf(raw.trim());
+        } catch (Exception e) {
+            throw new ConvertInputException(label + ' is not a valid Salesforce Id: "' + raw + '".');
+        }
+        Schema.SObjectType actual = parsed.getSObjectType();
+        for (Schema.SObjectType t : allowed) {
+            if (actual == t) {
+                return parsed;
+            }
+        }
+        List<String> names = new List<String>();
+        for (Schema.SObjectType t : allowed) {
+            names.add(String.valueOf(t));
+        }
+        throw new ConvertInputException(label + ' must be a ' + String.join(names, ' or ')
+            + ' Id, but a ' + actual + ' Id was supplied.');
+    }
+
     @InvocableMethod(label='Convert Lead' description='Converts Leads from Flow. Returns one output per input in the same order. Check isSuccess and errorMessage on each output. Person Account aware when Person Accounts are enabled.' category='Lead')
     public static List<WSM_FlowLeadConverterOutputWrapper> convertLead(List<WSM_FlowLeadConverterInputWrapper> inputList) {
 
@@ -57,12 +110,20 @@ public with sharing class WSM_FlowLeadConverter {
             convertedStatuses.put(ls.MasterLabel.toLowerCase(), ls.MasterLabel);
         }
 
-        // Pre-load target accounts so a Person Account can be supplied on its own:
-        // its PersonContactId fills in the Contact, which the platform requires.
+        Boolean anyEnforcement = false;
+        for (WSM_FlowLeadConverterInputWrapper input : inputList) {
+            if (input.enforceUserPermissions == true) {
+                anyEnforcement = true;
+                break;
+            }
+        }
+        Boolean userCanConvert = anyEnforcement ? runningUserCanConvertLeads() : true;
+
+        // Pre-load target accounts so a Person Account can be supplied on its own.
         Set<Id> targetAccountIds = new Set<Id>();
         for (WSM_FlowLeadConverterInputWrapper input : inputList) {
             Id acctId = safeId(input.accountId);
-            if (acctId != null) {
+            if (acctId != null && acctId.getSObjectType() == Account.SObjectType) {
                 targetAccountIds.add(acctId);
             }
         }
@@ -82,6 +143,11 @@ public with sharing class WSM_FlowLeadConverter {
             output.isSuccess = false;
             output.isPersonAccount = false;
             outputList.add(output);
+
+            if (input.enforceUserPermissions == true && !userCanConvert) {
+                output.errorMessage = 'You do not have the "Convert Leads" permission.';
+                continue;
+            }
 
             Boolean statusBlank = String.isBlank(input.ConvertedStatusName);
             String resolvedStatus;
@@ -104,40 +170,43 @@ public with sharing class WSM_FlowLeadConverter {
 
             try {
                 Database.LeadConvert lc = new Database.LeadConvert();
-                lc.setLeadId(Id.valueOf(input.leadId.trim()));
+                lc.setLeadId(typedId(input.leadId, new List<Schema.SObjectType>{ Lead.SObjectType }, 'Lead Id'));
                 lc.setConvertedStatus(resolvedStatus);
                 lc.setDoNotCreateOpportunity(input.doNotCreateOpp == true);
 
-                Id targetAccountId = safeId(input.accountId);
-                if (String.isNotBlank(input.accountId)) {
-                    lc.setAccountId(Id.valueOf(input.accountId.trim()));
+                Id targetAccountId = typedId(input.accountId, new List<Schema.SObjectType>{ Account.SObjectType }, 'Existing Account Id');
+                if (targetAccountId != null) {
+                    lc.setAccountId(targetAccountId);
                 }
 
-                // Converting into an existing Person Account requires its person
-                // Contact; resolve it so callers only have to supply the account.
-                Id targetContactId = safeId(input.contactId);
-                if (targetContactId == null && isPersonAccount(targetAccountInfo, targetAccountId)) {
-                    targetContactId = (Id) targetAccountInfo.get(targetAccountId).get('PersonContactId');
-                }
-                if (targetContactId != null) {
+                // Per the Apex Reference, converting into a Person Account must specify
+                // ONLY the account - passing a Contact Id there is documented to error.
+                Id targetContactId = typedId(input.contactId, new List<Schema.SObjectType>{ Contact.SObjectType }, 'Existing Contact Id');
+                if (isPersonAccount(targetAccountInfo, targetAccountId)) {
+                    if (targetContactId != null) {
+                        addWarning(output, 'Existing Contact Id is ignored when converting into a Person Account - the person Contact is implied by the account.');
+                    }
+                } else if (targetContactId != null) {
                     lc.setContactId(targetContactId);
-                } else if (String.isNotBlank(input.contactId)) {
-                    lc.setContactId(Id.valueOf(input.contactId.trim()));
                 }
 
-                if (String.isNotBlank(input.opportunityId)) {
-                    lc.setOpportunityId(Id.valueOf(input.opportunityId.trim()));
+                Id targetOppId = typedId(input.opportunityId, new List<Schema.SObjectType>{ Opportunity.SObjectType }, 'Existing Opportunity Id');
+                if (targetOppId != null) {
+                    lc.setOpportunityId(targetOppId);
                 }
-                if (String.isNotBlank(input.personAccountId)) {
-                    lc.setRelatedPersonAccountId(Id.valueOf(input.personAccountId.trim()));
+                Id personAcctId = typedId(input.personAccountId, new List<Schema.SObjectType>{ Account.SObjectType }, 'Person Account Id');
+                if (personAcctId != null) {
+                    lc.setRelatedPersonAccountId(personAcctId);
                 }
-                if (String.isNotBlank(input.ownerId)) {
-                    lc.setOwnerId(Id.valueOf(input.ownerId.trim()));
+                // An owner can be a User or a Queue (Group).
+                Id ownerId = typedId(input.ownerId, new List<Schema.SObjectType>{ User.SObjectType, Group.SObjectType }, 'New Owner Id');
+                if (ownerId != null) {
+                    lc.setOwnerId(ownerId);
                 }
                 // The platform rejects a LeadConvert carrying both opportunityId and
                 // opportunityName; when converting into an existing Opportunity the
                 // rename happens post-convert in applyRenames instead.
-                if (String.isNotBlank(input.opportunityName) && String.isBlank(input.opportunityId)) {
+                if (String.isNotBlank(input.opportunityName) && targetOppId == null) {
                     lc.setOpportunityName(input.opportunityName);
                 }
                 if (input.sendNotificationEmail == true) {
@@ -151,6 +220,8 @@ public with sharing class WSM_FlowLeadConverter {
                 if (statusBlank) {
                     autoStatusIndexes.add(i);
                 }
+            } catch (ConvertInputException e) {
+                output.errorMessage = e.getMessage();
             } catch (Exception e) {
                 output.errorMessage = 'Invalid input: ' + e.getMessage();
             }
@@ -167,32 +238,51 @@ public with sharing class WSM_FlowLeadConverter {
         List<Integer> pendingIndexes = convertIndexes;
         Integer round = 0;
         while (!pending.isEmpty()) {
-            List<Database.LeadConvertResult> results = Database.convertLead(pending, convertOptions);
             List<Database.LeadConvert> retries = new List<Database.LeadConvert>();
             List<Integer> retryIndexes = new List<Integer>();
 
-            for (Integer j = 0; j < results.size(); j++) {
-                Integer idx = pendingIndexes[j];
-                WSM_FlowLeadConverterOutputWrapper output = outputList[idx];
-                Database.LeadConvertResult res = results[j];
+            for (Integer offset = 0; offset < pending.size(); offset += chunkSize) {
+                Integer stop = Math.min(offset + chunkSize, pending.size());
+                List<Database.LeadConvert> chunk = new List<Database.LeadConvert>();
+                List<Integer> chunkIndexes = new List<Integer>();
+                for (Integer k = offset; k < stop; k++) {
+                    chunk.add(pending[k]);
+                    chunkIndexes.add(pendingIndexes[k]);
+                }
 
-                if (res.isSuccess()) {
-                    output.isSuccess = true;
-                    output.errorMessage = null;
-                    output.accountId = res.getAccountId();
-                    output.contactId = res.getContactId();
-                    output.opportunityId = res.getOpportunityId();
-                    output.personAccountId = res.getRelatedPersonAccountId();
-                } else if (autoStatusIndexes.contains(idx) && round + 1 < candidateStatuses.size()) {
-                    pending[j].setConvertedStatus(candidateStatuses[round + 1]);
-                    retries.add(pending[j]);
-                    retryIndexes.add(idx);
-                } else {
-                    List<String> errs = new List<String>();
-                    for (Database.Error err : res.getErrors()) {
-                        errs.add(err.getMessage());
+                List<Database.LeadConvertResult> results = Database.convertLead(chunk, convertOptions);
+                for (Integer j = 0; j < results.size(); j++) {
+                    Integer idx = chunkIndexes[j];
+                    WSM_FlowLeadConverterOutputWrapper output = outputList[idx];
+                    Database.LeadConvertResult res = results[j];
+
+                    if (res.isSuccess()) {
+                        output.isSuccess = true;
+                        output.errorMessage = null;
+                        output.accountId = res.getAccountId();
+                        output.contactId = res.getContactId();
+                        output.opportunityId = res.getOpportunityId();
+                        output.personAccountId = res.getRelatedPersonAccountId();
+                        continue;
                     }
-                    output.errorMessage = String.join(errs, '; ');
+                    // Only a status rejection is worth retrying under a different
+                    // status. Retrying every failure wasted a DML statement per
+                    // candidate and could report a status error in place of the
+                    // real cause.
+                    Boolean retryable = autoStatusIndexes.contains(idx)
+                        && round + 1 < candidateStatuses.size()
+                        && isInvalidStatusError(res);
+                    if (retryable) {
+                        chunk[j].setConvertedStatus(candidateStatuses[round + 1]);
+                        retries.add(chunk[j]);
+                        retryIndexes.add(idx);
+                    } else {
+                        List<String> errs = new List<String>();
+                        for (Database.Error err : res.getErrors()) {
+                            errs.add(err.getMessage());
+                        }
+                        output.errorMessage = String.join(errs, '; ');
+                    }
                 }
             }
 
@@ -222,6 +312,15 @@ public with sharing class WSM_FlowLeadConverter {
         return outputList;
     }
 
+    private static Boolean isInvalidStatusError(Database.LeadConvertResult res) {
+        for (Database.Error err : res.getErrors()) {
+            if (err.getStatusCode() == System.StatusCode.INVALID_STATUS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Post-conversion inline edits: rename the Account, Contact, and (existing)
     // Opportunity when the caller supplied new names. Rename failures never undo
     // the conversion — they surface on warningMessage with isSuccess still true.
@@ -235,12 +334,16 @@ public with sharing class WSM_FlowLeadConverter {
         Map<Id, SObject> oppUpdates = new Map<Id, SObject>();
         Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId = new Map<Id, List<WSM_FlowLeadConverterOutputWrapper>>();
         RecordTypeCatalog catalog = loadRecordTypes(inputList);
+        Boolean enforce = false;
 
         for (Integer i = 0; i < inputList.size(); i++) {
             WSM_FlowLeadConverterInputWrapper input = inputList[i];
             WSM_FlowLeadConverterOutputWrapper output = outputList[i];
             if (output.isSuccess != true) {
                 continue;
+            }
+            if (input.enforceUserPermissions == true) {
+                enforce = true;
             }
             Boolean acctIsPerson = isPersonAccount(convertedAccountInfo, output.accountId);
 
@@ -269,61 +372,90 @@ public with sharing class WSM_FlowLeadConverter {
                 acctNameToSet = null;
             }
 
-            if ((String.isNotBlank(acctNameToSet) || acctRt != null) && output.accountId != null) {
-                SObject acct = Schema.getGlobalDescribe().get('Account').newSObject();
-                acct.put('Id', output.accountId);
-                if (String.isNotBlank(acctNameToSet)) {
-                    acct.put('Name', acctNameToSet);
-                }
-                if (acctRt != null) {
-                    acct.put('RecordTypeId', acctRt);
-                }
-                accountUpdates.put(output.accountId, acct);
-                trackOutput(outputsByRecordId, output.accountId, output);
+            Map<String, Object> acctFields = new Map<String, Object>();
+            if (String.isNotBlank(acctNameToSet)) {
+                acctFields.put('Name', acctNameToSet);
+            }
+            if (acctRt != null) {
+                acctFields.put('RecordTypeId', acctRt);
+            }
+            if (!acctFields.isEmpty() && output.accountId != null) {
+                stageUpdate(accountUpdates, outputsByRecordId, output.accountId, 'Account', acctFields, output);
             }
 
             // Renaming the Contact is the supported way to rename a Person Account:
             // writing the person Contact's first/last name updates the account Name.
-            if ((String.isNotBlank(input.contactFirstName) || String.isNotBlank(input.contactLastName) || conRt != null) && output.contactId != null) {
-                SObject con = Schema.getGlobalDescribe().get('Contact').newSObject();
-                con.put('Id', output.contactId);
-                if (String.isNotBlank(input.contactFirstName)) {
-                    con.put('FirstName', input.contactFirstName);
+            Map<String, Object> conFields = new Map<String, Object>();
+            if (String.isNotBlank(input.contactFirstName)) {
+                conFields.put('FirstName', input.contactFirstName);
+            }
+            if (String.isNotBlank(input.contactLastName)) {
+                conFields.put('LastName', input.contactLastName);
+            }
+            if (conRt != null) {
+                if (acctIsPerson) {
+                    addWarning(output, 'Contact record type is controlled by the Person Account record type - record type not changed on the person Contact.');
+                } else {
+                    conFields.put('RecordTypeId', conRt);
                 }
-                if (String.isNotBlank(input.contactLastName)) {
-                    con.put('LastName', input.contactLastName);
-                }
-                if (conRt != null) {
-                    if (acctIsPerson) {
-                        addWarning(output, 'Contact record type is controlled by the Person Account record type - record type not changed on the person Contact.');
-                    } else {
-                        con.put('RecordTypeId', conRt);
-                    }
-                }
-                contactUpdates.put(output.contactId, con);
-                trackOutput(outputsByRecordId, output.contactId, output);
+            }
+            if (!conFields.isEmpty() && output.contactId != null) {
+                stageUpdate(contactUpdates, outputsByRecordId, output.contactId, 'Contact', conFields, output);
             }
 
             // A new Opportunity is already named via setOpportunityName; only an
             // existing Opportunity the lead converted into needs a rename.
-            Boolean renameOpp = String.isNotBlank(input.opportunityName) && String.isNotBlank(input.opportunityId);
-            if ((renameOpp || oppRt != null) && output.opportunityId != null) {
-                SObject opp = Schema.getGlobalDescribe().get('Opportunity').newSObject();
-                opp.put('Id', output.opportunityId);
-                if (renameOpp) {
-                    opp.put('Name', input.opportunityName);
-                }
-                if (oppRt != null) {
-                    opp.put('RecordTypeId', oppRt);
-                }
-                oppUpdates.put(output.opportunityId, opp);
-                trackOutput(outputsByRecordId, output.opportunityId, output);
+            Map<String, Object> oppFields = new Map<String, Object>();
+            if (String.isNotBlank(input.opportunityName) && String.isNotBlank(input.opportunityId)) {
+                oppFields.put('Name', input.opportunityName);
+            }
+            if (oppRt != null) {
+                oppFields.put('RecordTypeId', oppRt);
+            }
+            if (!oppFields.isEmpty() && output.opportunityId != null) {
+                stageUpdate(oppUpdates, outputsByRecordId, output.opportunityId, 'Opportunity', oppFields, output);
             }
         }
 
-        applyUpdateBatch(accountUpdates.values(), outputsByRecordId);
-        applyUpdateBatch(contactUpdates.values(), outputsByRecordId);
-        applyUpdateBatch(oppUpdates.values(), outputsByRecordId);
+        applyUpdateBatch(accountUpdates.values(), outputsByRecordId, enforce);
+        applyUpdateBatch(contactUpdates.values(), outputsByRecordId, enforce);
+        applyUpdateBatch(oppUpdates.values(), outputsByRecordId, enforce);
+    }
+
+    // Two Leads in one batch can converge on the same Account or Opportunity. First
+    // value wins and every output touching that record is told what was ignored,
+    // rather than one caller's rename silently disappearing.
+    private static void stageUpdate(
+        Map<Id, SObject> updates,
+        Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId,
+        Id recordId,
+        String objectType,
+        Map<String, Object> fieldValues,
+        WSM_FlowLeadConverterOutputWrapper output
+    ) {
+        SObject rec = updates.get(recordId);
+        if (rec == null) {
+            rec = Schema.getGlobalDescribe().get(objectType).newSObject();
+            rec.put('Id', recordId);
+            updates.put(recordId, rec);
+        }
+        for (String fieldName : fieldValues.keySet()) {
+            Object requested = fieldValues.get(fieldName);
+            Object existing = rec.get(fieldName);
+            if (existing != null && existing != requested) {
+                String warning = 'Another Lead in the same batch set ' + objectType + '.' + fieldName
+                    + ' on ' + recordId + ' to "' + existing + '"; "' + requested + '" was ignored.';
+                addWarning(output, warning);
+                if (outputsByRecordId.containsKey(recordId)) {
+                    for (WSM_FlowLeadConverterOutputWrapper prior : outputsByRecordId.get(recordId)) {
+                        addWarning(prior, warning);
+                    }
+                }
+                continue;
+            }
+            rec.put(fieldName, requested);
+        }
+        trackOutput(outputsByRecordId, recordId, output);
     }
 
     private class RecordTypeCatalog {
@@ -388,10 +520,40 @@ public with sharing class WSM_FlowLeadConverter {
         outputsByRecordId.get(recordId).add(output);
     }
 
-    private static void applyUpdateBatch(List<SObject> updates, Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId) {
+    private static void applyUpdateBatch(
+        List<SObject> updates,
+        Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId,
+        Boolean enforceUserPermissions
+    ) {
         if (updates.isEmpty()) {
             return;
         }
+        // The post-conversion writes run in system context like the rest of Apex.
+        // When the caller opts in, drop any field the running user cannot edit and
+        // tell them, rather than quietly writing past their field-level security.
+        if (enforceUserPermissions) {
+            SObjectAccessDecision decision = Security.stripInaccessible(AccessType.UPDATABLE, updates, true);
+            Map<String, Set<String>> removed = decision.getRemovedFields();
+            if (!removed.isEmpty()) {
+                List<String> parts = new List<String>();
+                for (String obj : removed.keySet()) {
+                    parts.add(obj + ': ' + String.join(new List<String>(removed.get(obj)), ', '));
+                }
+                String warning = 'Field-level security stopped these post-conversion updates - ' + String.join(parts, '; ') + '.';
+                for (SObject rec : updates) {
+                    if (outputsByRecordId.containsKey(rec.Id)) {
+                        for (WSM_FlowLeadConverterOutputWrapper output : outputsByRecordId.get(rec.Id)) {
+                            addWarning(output, warning);
+                        }
+                    }
+                }
+            }
+            updates = decision.getRecords();
+            if (updates.isEmpty()) {
+                return;
+            }
+        }
+
         Database.DMLOptions renameOptions = new Database.DMLOptions();
         renameOptions.optAllOrNone = false;
         renameOptions.duplicateRuleHeader.allowSave = true;
@@ -405,8 +567,10 @@ public with sharing class WSM_FlowLeadConverter {
                 errs.add(err.getMessage());
             }
             String warning = 'Converted, but post-conversion update of ' + updates[i].Id + ' failed: ' + String.join(errs, '; ');
-            for (WSM_FlowLeadConverterOutputWrapper output : outputsByRecordId.get(updates[i].Id)) {
-                addWarning(output, warning);
+            if (outputsByRecordId.containsKey(updates[i].Id)) {
+                for (WSM_FlowLeadConverterOutputWrapper output : outputsByRecordId.get(updates[i].Id)) {
+                    addWarning(output, warning);
+                }
             }
         }
     }

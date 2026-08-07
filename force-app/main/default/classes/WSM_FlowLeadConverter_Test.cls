@@ -150,7 +150,7 @@ private class WSM_FlowLeadConverter_Test {
 
         System.assertEquals(2, outputs.size());
         System.assertEquals(false, outputs[0].isSuccess);
-        System.assert(outputs[0].errorMessage.contains('Definitely Not A Real Status'));
+        System.assert(outputs[0].errorMessage != null && outputs[0].errorMessage.contains('Definitely Not A Real Status'));
         System.assertEquals(true, outputs[1].isSuccess, 'Convert failed: ' + outputs[1].errorMessage);
         System.assertNotEquals(null, outputs[1].accountId);
     }
@@ -292,7 +292,7 @@ private class WSM_FlowLeadConverter_Test {
 
         System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
         System.assertNotEquals(null, outputs[0].warningMessage);
-        System.assert(outputs[0].warningMessage.contains('record type'), outputs[0].warningMessage);
+        System.assert(outputs[0].warningMessage != null && outputs[0].warningMessage.contains('record type'), 'warning: ' + outputs[0].warningMessage);
     }
 
     @isTest
@@ -324,7 +324,7 @@ private class WSM_FlowLeadConverter_Test {
         System.assertEquals(true, outputs[0].isSuccess, 'Convert failed: ' + outputs[0].errorMessage);
         System.assertEquals(true, outputs[0].isPersonAccount, 'Expected a Person Account');
         System.assertNotEquals(null, outputs[0].warningMessage, 'Expected an Account Name warning');
-        System.assert(outputs[0].warningMessage.contains('Person Account'), outputs[0].warningMessage);
+        System.assert(outputs[0].warningMessage != null && outputs[0].warningMessage.contains('Person Account'), 'warning: ' + outputs[0].warningMessage);
         SObject con = Database.query('SELECT FirstName FROM Contact WHERE Id = \'' + outputs[0].contactId + '\'')[0];
         System.assertEquals('Patricia', (String) con.get('FirstName'), 'Contact rename should work on a Person Account');
     }
@@ -397,5 +397,198 @@ private class WSM_FlowLeadConverter_Test {
             System.assertNotEquals(null, o.accountId);
             System.assertNotEquals(null, o.contactId);
         }
+    }
+
+    @isTest
+    static void testChunkingConvertsEveryRecord() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        List<WSM_FlowLeadConverterInputWrapper> inputs = new List<WSM_FlowLeadConverterInputWrapper>();
+        for (Integer i = 0; i < 5; i++) {
+            Lead l = makeLead('Chunk' + i, 'WSM Chunk Co ' + i);
+            WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+            input.leadId = l.Id;
+            input.doNotCreateOpp = true;
+            input.ConvertedStatusName = workingStatus;
+            inputs.add(input);
+        }
+
+        Test.startTest();
+        // Force several chunks so the boundary logic is exercised without
+        // creating the 100+ records the real threshold would need.
+        WSM_FlowLeadConverter.chunkSize = 2;
+        List<WSM_FlowLeadConverterOutputWrapper> outputs = WSM_FlowLeadConverter.convertLead(inputs);
+        Test.stopTest();
+
+        System.assertEquals(5, outputs.size(), 'every input still gets an output');
+        for (Integer i = 0; i < outputs.size(); i++) {
+            System.assertEquals(true, outputs[i].isSuccess, 'row ' + i + ': ' + outputs[i].errorMessage);
+            System.assertNotEquals(null, outputs[i].accountId, 'row ' + i + ' should have an Account');
+        }
+    }
+
+    @isTest
+    static void testNonStatusFailureIsNotRetried() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        // How many attempts SHOULD a retry-eligible row take? Exactly enough to get
+        // past any statuses this record type rejects, and not one more. Computing it
+        // keeps the assertion true in any org, whatever its converted statuses are.
+        List<String> ordered = new List<String>();
+        for (LeadStatus ls : [SELECT MasterLabel FROM LeadStatus WHERE IsConverted = true ORDER BY SortOrder]) {
+            ordered.add(ls.MasterLabel);
+        }
+        Integer expectedAttempts = ordered.indexOf(workingStatus) + 1;
+
+        Lead l = makeLead('NoRetry', 'WSM No Retry Co');
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        // Blank status = auto-detect, so this row is retry-eligible...
+        input.accountId = '001000000000000AAA';  // ...but the failure is not status related
+
+        Test.startTest();
+        Integer before = Limits.getDmlStatements();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Integer used = Limits.getDmlStatements() - before;
+        Test.stopTest();
+
+        System.assertEquals(false, outputs[0].isSuccess);
+        System.assertNotEquals(null, outputs[0].errorMessage);
+        System.assert(!outputs[0].errorMessage.contains('convertedStatus'),
+            'the real cause should be reported, not a status error: ' + outputs[0].errorMessage);
+        System.assertEquals(expectedAttempts, used,
+            'a non-status failure must stop retrying once status is no longer the problem');
+    }
+
+    @isTest
+    static void testConflictingRenamesWarnBothRows() {
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        Database.DMLOptions dml = allowDupes();
+        Account shared = new Account(Name = 'WSM Shared Rename Target');
+        Database.insert(shared, dml);
+        Lead a = makeLead('ConflictA', 'WSM Shared Rename Target');
+        Lead b = makeLead('ConflictB', 'WSM Shared Rename Target');
+
+        WSM_FlowLeadConverterInputWrapper ia = new WSM_FlowLeadConverterInputWrapper();
+        ia.leadId = a.Id; ia.doNotCreateOpp = true; ia.ConvertedStatusName = workingStatus;
+        ia.accountId = shared.Id; ia.accountName = 'Name From A';
+        WSM_FlowLeadConverterInputWrapper ib = new WSM_FlowLeadConverterInputWrapper();
+        ib.leadId = b.Id; ib.doNotCreateOpp = true; ib.ConvertedStatusName = workingStatus;
+        ib.accountId = shared.Id; ib.accountName = 'Name From B';
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ ia, ib });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'error: ' + outputs[0].errorMessage);
+        System.assertEquals(true, outputs[1].isSuccess, 'error: ' + outputs[1].errorMessage);
+        System.assertNotEquals(null, outputs[0].warningMessage, 'first row should learn its value was contested');
+        System.assertNotEquals(null, outputs[1].warningMessage, 'second row should learn its value was ignored');
+        SObject acct = Database.query('SELECT Name FROM Account WHERE Id = \'' + shared.Id + '\'')[0];
+        System.assertEquals('Name From A', (String) acct.get('Name'), 'first value wins deterministically');
+    }
+
+    @isTest
+    static void testWrongObjectIdGivesAClearError() {
+        Database.DMLOptions dml = allowDupes();
+        Account acct = new Account(Name = 'WSM Wrong Id Co');
+        Database.insert(acct, dml);
+        Lead l = makeLead('WrongId', 'WSM Wrong Id Co');
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        input.contactId = acct.Id;  // an Account Id where a Contact is expected
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(false, outputs[0].isSuccess);
+        System.assert(outputs[0].errorMessage != null && outputs[0].errorMessage.contains('Existing Contact Id'), 'error: ' + outputs[0].errorMessage);
+        System.assert(outputs[0].errorMessage != null && outputs[0].errorMessage.contains('Account'), outputs[0].errorMessage);
+    }
+
+    @isTest
+    static void testEnforceUserPermissionsBlocksUserWithoutConvertLeads() {
+        List<Profile> noConvert = [SELECT Id FROM Profile WHERE Name = 'Standard Platform User' LIMIT 1];
+        if (noConvert.isEmpty()) {
+            return;
+        }
+        User u = new User(Alias = 'nocnv', Email = 'noconvert@wsmprobe.example.com',
+            EmailEncodingKey = 'UTF-8', LastName = 'NoConvert', LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US', ProfileId = noConvert[0].Id, TimeZoneSidKey = 'America/Chicago',
+            Username = 'noconvert' + DateTime.now().getTime() + '@wsmprobe.example.com');
+        insert u;
+
+        Lead l = makeLead('PermCheck', 'WSM Perm Check Co');
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        input.enforceUserPermissions = true;
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs;
+        System.runAs(u) {
+            outputs = WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        }
+        Test.stopTest();
+
+        System.assertEquals(false, outputs[0].isSuccess, 'a user without Convert Leads must be stopped when enforcing');
+        System.assert(outputs[0].errorMessage != null && outputs[0].errorMessage.contains('Convert Leads'), outputs[0].errorMessage);
+    }
+
+    @isTest
+    static void testPersonAccountIgnoresSuppliedContactId() {
+        if (!personAccountsEnabled()) {
+            return;
+        }
+        String workingStatus = findWorkingConvertedStatus();
+        if (workingStatus == null) {
+            return;
+        }
+        List<SObject> personRts = Database.query('SELECT Id FROM RecordType WHERE SobjectType = \'Account\' AND IsPersonType = true AND IsActive = true LIMIT 1');
+        if (personRts.isEmpty()) {
+            return;
+        }
+        SObject pa = Schema.getGlobalDescribe().get('Account').newSObject();
+        pa.put('RecordTypeId', (Id) personRts[0].get('Id'));
+        pa.put('FirstName', 'Ignore');
+        pa.put('LastName', 'ContactId');
+        Database.insert(pa, allowDupes());
+        Id paId = (Id) pa.get('Id');
+        Id personContactId = (Id) Database.query('SELECT PersonContactId FROM Account WHERE Id = \'' + paId + '\'')[0].get('PersonContactId');
+
+        Lead l = new Lead(FirstName = 'Ignore', LastName = 'ContactId');
+        Database.insert(l, allowDupes());
+
+        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
+        input.leadId = l.Id;
+        input.doNotCreateOpp = true;
+        input.ConvertedStatusName = workingStatus;
+        input.accountId = paId;
+        input.contactId = personContactId;  // documented as invalid for a person account
+
+        Test.startTest();
+        List<WSM_FlowLeadConverterOutputWrapper> outputs =
+            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
+        Test.stopTest();
+
+        System.assertEquals(true, outputs[0].isSuccess, 'error: ' + outputs[0].errorMessage);
+        System.assertEquals(paId, outputs[0].accountId);
+        System.assertNotEquals(null, outputs[0].warningMessage, 'caller should be told the Contact Id was ignored');
+        System.assert(outputs[0].warningMessage != null && outputs[0].warningMessage.contains('Person Account'), 'warning: ' + outputs[0].warningMessage);
     }
 }

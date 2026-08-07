@@ -12,7 +12,7 @@ public with sharing class WSM_FlowLeadConverterInputWrapper {
     @InvocableVariable(required=false label='Existing Account Id' description='Convert into this Account. Leave blank to create a new Account.')
     public String accountId;
 
-    @InvocableVariable(required=false label='Existing Contact Id' description='Convert into this Contact. Must belong to the specified Account. Leave blank to create a new Contact.')
+    @InvocableVariable(required=false label='Existing Contact Id' description='Convert into this Contact. Must belong to the specified Account. Ignored when the Account is a Person Account. Leave blank to create a new Contact.')
     public String contactId;
 
     @InvocableVariable(required=false label='Existing Opportunity Id' description='Convert into this Opportunity. Leave blank to create a new one unless Do Not Create Opportunity is TRUE.')
@@ -50,4 +50,7 @@ public with sharing class WSM_FlowLeadConverterInputWrapper {
 
     @InvocableVariable(required=false label='Opportunity Record Type' description='Record Type to set on the Opportunity after conversion. Accepts an Id, DeveloperName, or label. Leave blank for the default.')
     public String opportunityRecordType;
+
+    @InvocableVariable(required=false label='Enforce User Permissions' description='TRUE requires the running user to have the "Convert Leads" permission and applies their field-level security to post-conversion updates. Defaults to FALSE, which converts in system context like all Apex.')
+    public Boolean enforceUserPermissions;
 }
