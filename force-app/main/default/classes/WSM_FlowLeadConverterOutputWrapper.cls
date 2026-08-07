@@ -1,4 +1,4 @@
-public with sharing class WSM_FlowLeadConverterOutputWrapper {
+public class WSM_FlowLeadConverterOutputWrapper {
 
     @InvocableVariable(label='Success' description='TRUE if the Lead converted successfully.')
     public Boolean isSuccess;

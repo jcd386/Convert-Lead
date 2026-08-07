@@ -69,14 +69,17 @@ Person Account fields (`IsPersonAccount`, `Account.FirstName`, `PersonContactId`
 
 If you build your own screen for this, note that `Lead.Company` is nillable **only** in Person Account orgs — it is required otherwise — so "Company is blank" is a person-lead test that needs no Person Account field reference and therefore works in any org.
 
-## Security
+## Access model
 
-Like all Apex, this action runs in **system context**, and it assumes the flow calling it is one you trust:
+This action is a conversion engine, not an access gate. It is declared `without sharing` and does no permission, CRUD, or field-level security checking of its own, so it runs in **system context** and converts whatever Lead it is handed:
 
-- `Database.convertLead()` succeeds even for a user who does **not** have the **Convert Leads** permission, so anyone who can run a Flow containing this action can convert leads. That is sometimes exactly what you want — removing the permission hides the standard Convert button and the Path's convert option, leaving your flow as the only route — but decide it deliberately.
-- The post-conversion renames and record-type writes bypass field-level security, so a user without edit access to `Account.Name` can still rename through the action.
+- It converts successfully for a user who does **not** hold the **Convert Leads** permission.
+- It converts Leads the running user has no record-level access to, which is what makes it dependable in bulk record-triggered flows.
+- Post-conversion renames and record-type changes write regardless of the user's field-level security.
 
-If you need per-user enforcement, gate the flow itself rather than the action — check the running user's permission in the flow, or restrict who can run it.
+That is deliberate. **Control who may convert by controlling who can run the Flow that calls this action** — through the Flow's own access, a permission set on the screen or quick action, or a check inside the Flow itself. Keeping the decision there means the same action serves an admin-only utility, a self-service screen, and an automated bulk job without needing modes.
+
+One useful consequence: because the action does not require **Convert Leads**, you can remove that permission from users to hide the standard Convert button and the Path's convert option, leaving your Flow as the only route to conversion, and this action keeps working.
 
 ## Why the status auto-detect matters
 

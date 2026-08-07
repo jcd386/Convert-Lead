@@ -1,4 +1,4 @@
-public with sharing class WSM_FlowLeadConverterInputWrapper {
+public class WSM_FlowLeadConverterInputWrapper {
 
     @InvocableVariable(required=true label='Lead Id' description='Id of the Lead to convert.')
     public String leadId;

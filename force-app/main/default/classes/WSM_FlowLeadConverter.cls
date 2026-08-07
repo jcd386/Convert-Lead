@@ -1,4 +1,8 @@
-public with sharing class WSM_FlowLeadConverter {
+// Deliberately "without sharing": this action is a conversion engine, not an access
+// gate. It runs in system context so it can convert any Lead it is handed, including
+// in bulk flows where the running user has no record access to every Lead in scope.
+// Decide WHO may convert by controlling who can run the Flow that calls it.
+public without sharing class WSM_FlowLeadConverter {
 
     // Database.convertLead is documented as supporting at most 100 LeadConvert
     // objects per call; a bulk flow can hand this action up to 200 at once.
