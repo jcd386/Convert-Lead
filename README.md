@@ -2,7 +2,7 @@
 
 [![Deploy to Salesforce](https://raw.githubusercontent.com/afawcett/githubsfdeploy/master/src/main/webapp/resources/img/deploy.png)](https://githubsfdeploy.herokuapp.com/app/githubdeploy/jcd386/Convert-Lead?ref=main)
 
-Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Database.convertLead()` capability to Flows and Agentforce — convert into new or existing Accounts, Contacts, and Opportunities, with duplicate-rule match suggestions, inline renames, and per-record success/error outputs that never fault your flow.
+Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Database.convertLead()` capability to Flows and Agentforce — convert into new or existing Accounts, Contacts, and Opportunities, with inline renames, record types, Person Account awareness, and per-record success/error outputs that never fault your flow.
 
 ## Features
 
@@ -15,7 +15,6 @@ Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Datab
 - **Blank-tolerant inputs** — empty strings from Flow are treated as unset instead of throwing invalid-ID errors
 - **Duplicate-rule parity** — alert-mode duplicate rules block `Database.convertLead()` in the API context even though the standard convert screen saves through them; this action restores that parity via `DuplicateRuleHeader.allowSave` (block-mode rules still block)
 - **Inline renames** — optional Account Name, Contact First/Last Name, and Opportunity Name inputs rename the records right after conversion, like the standard convert screen's editable fields
-- **Match suggestions** — a second action, **Find Lead Conversion Matches**, runs your org's own duplicate/matching rules against the Lead and returns the existing Accounts and Contacts they match, including ready-to-display HTML link lists so users can click through and review each match before picking one
 - **Record types** — optional Account/Contact/Opportunity Record Type inputs (Id, DeveloperName, or label) set the record type after conversion; `Database.convertLead()` itself offers no record-type control. Uses dynamic field access so the package still deploys in orgs with no record types
 - **Person Account aware, without requiring Person Accounts** — a Lead with no Company converts to a Person Account (platform behavior); this action detects the result, resolves a Person Account's person Contact for you, and redirects the Account Name rename to the person's name fields. Every Person Account field reference is dynamic and runtime-gated, so the package installs and runs identically in orgs **with or without** Person Accounts enabled
 
@@ -53,30 +52,6 @@ Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Datab
 | Opportunity Id | Opportunity created or converted into (null when skipped) |
 | Person Account Id | Populated only when converting into an existing person account via the Person Account Id input |
 | Is Person Account | TRUE when the converted Account is a Person Account. Always FALSE in orgs without Person Accounts |
-
-## Find Lead Conversion Matches
-
-The companion action replicates the standard convert screen's duplicate suggestions. Give it a Lead Id and it returns:
-
-| Output | Description |
-|--------|-------------|
-| Matched Accounts | Existing Accounts matching the Lead (record collection) |
-| Matched Contacts | Existing Contacts matching the Lead (record collection) |
-| Account/Contact Match Count | Counts for display text |
-| Has Account/Contact Matches | Booleans for component visibility |
-| Matched Accounts/Contacts HTML | Rich-text link lists (record name links to the record, plus city/website or account/email context) — drop straight into a Display Text component |
-| Is Person Lead | TRUE when the Lead has no Company, so it converts to a Person Account |
-| Account/Contact Choice Options | Option-shell record collections for radio/picklist collection choice sets: display the `Name` field (a clickable link label with context) and use `AccountNumber` as the value (the matched record Id). Because the href embeds the Id, flows can recover the exact Id from the label with `MID(label, FIND("href=\"/001", label) + 7, 18)` in runtimes that return choice labels instead of values |
-
-Matching runs `Datacloud.FindDuplicates` against your org's **active duplicate rules**, using throwaway in-memory records shaped from the Lead. Those records carry the same fields lead conversion itself maps across — Company, Phone, Website and the address on the Account side; name, email, phone, mobile, title and the address on the Contact side — so your matching rules have everything they key on. (The Standard Account Matching Rule, for one, needs address data and will not match on name alone.) Nothing is ever inserted; the action only reads. `Max Results` caps each list (default 5).
-
-Results are filtered to the object being searched. Duplicate rules can span objects — the standard Contact rule also matches Contacts against Leads — so an unfiltered search hands back Lead Ids, including the Lead you are converting.
-
-Suggestions come from your duplicate rules and nothing else. That is deliberate: matching belongs where admins already configure it, in Setup, so the action never imposes its own opinion about what "similar" means. If a lead you expect to match returns nothing, the rule didn't match it — for example, the Standard Account Duplicate Rule needs address data, so an identical Account **name** alone won't match. Tune the matching rule, or build the matching you want with Get Records elements and pass the result to **Convert Lead** directly.
-
-A Lead with no Company (a person lead) is left out of the account pass entirely, since there is no account name to match on. Contact matching still runs. Note that Person Accounts are matched by the **Standard Person Account Duplicate Rule**, which is inactive in a new org — until you activate it (and its matching rule) in Setup, person leads return no suggestions.
-
-Bulk-safe: whatever the batch size, the action uses a constant handful of queries — one for the Leads, one duplicate-rule call per object, and one lookup per object to load the matched records.
 
 ## Person Accounts
 
@@ -130,9 +105,5 @@ The test class discovers a working converted status by trial conversion, so it p
 | `WSM_FlowLeadConverterInputWrapper` | Apex Class | Convert Lead input variables |
 | `WSM_FlowLeadConverterOutputWrapper` | Apex Class | Convert Lead output variables |
 | `WSM_FlowLeadConverter_Test` | Apex Class | Convert Lead test coverage |
-| `WSM_FlowLeadMatchFinder` | Apex Class | **Find Lead Conversion Matches** invocable action |
-| `WSM_FlowLeadMatchFinderInputWrapper` | Apex Class | Match finder input variables |
-| `WSM_FlowLeadMatchFinderOutputWrapper` | Apex Class | Match finder output variables |
-| `WSM_FlowLeadMatchFinder_Test` | Apex Class | Match finder test coverage |
 
-Apex only — no flows, layouts, or components are installed, so the actions drop into whatever UI you already have.
+Apex only — no flows, layouts, or components are installed, so the action drops into whatever UI you already have.
