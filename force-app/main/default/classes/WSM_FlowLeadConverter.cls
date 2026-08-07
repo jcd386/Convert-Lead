@@ -532,7 +532,25 @@ public with sharing class WSM_FlowLeadConverter {
         // When the caller opts in, drop any field the running user cannot edit and
         // tell them, rather than quietly writing past their field-level security.
         if (enforceUserPermissions) {
-            SObjectAccessDecision decision = Security.stripInaccessible(AccessType.UPDATABLE, updates, true);
+            SObjectAccessDecision decision;
+            try {
+                // enforceRootObjectCRUD must stay FALSE: with it on, a user who lacks
+                // object-level access gets a NoAccessException thrown here, which would
+                // fault the flow AFTER the conversion has already committed. Passing
+                // false strips the fields instead, and any object-level denial then
+                // surfaces through the normal DML failure path below.
+                decision = Security.stripInaccessible(AccessType.UPDATABLE, updates, false);
+            } catch (Exception e) {
+                String stripWarning = 'Converted, but post-conversion updates were skipped: ' + e.getMessage();
+                for (SObject rec : updates) {
+                    if (outputsByRecordId.containsKey(rec.Id)) {
+                        for (WSM_FlowLeadConverterOutputWrapper output : outputsByRecordId.get(rec.Id)) {
+                            addWarning(output, stripWarning);
+                        }
+                    }
+                }
+                return;
+            }
             Map<String, Set<String>> removed = decision.getRemovedFields();
             if (!removed.isEmpty()) {
                 List<String> parts = new List<String>();

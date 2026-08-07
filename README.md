@@ -79,6 +79,8 @@ Like all Apex, this action runs in **system context**. Two consequences worth un
 
 Set **Enforce User Permissions** to TRUE to opt out of both: the action then refuses to convert for a user lacking **Convert Leads**, and strips any field the running user cannot edit from the post-conversion updates, reporting what it dropped on `warningMessage`. It defaults to FALSE so existing behavior is unchanged.
 
+Enforcement never throws. Field stripping deliberately runs without root-object CRUD enforcement, because that variant raises `NoAccessException` — which would fault the flow *after* the conversion had already committed, losing every result for work that actually happened. Object-level denials surface through the normal update-failure warning instead. Note also that Salesforce makes **Convert Leads** depend on Create/Edit/Read for Account, Contact, and Lead, so a user who can convert always has those; Opportunity access is *not* part of that dependency, which is why the Opportunity write path is the one that can be blocked.
+
 ## Why the status auto-detect matters
 
 `Database.convertLead()` requires a converted Lead Status, but the valid value varies org to org — and it gets worse: if your Lead record types use business processes, an org-wide converted status can still be **invalid for a specific lead's record type**. This action handles both cases. Pass a status name if you want control; leave it blank and the action retries across every converted status in the org until one works for that lead.
