@@ -15,7 +15,7 @@ Flow-invocable Apex actions to convert Salesforce Leads. Exposes the full `Datab
 - **Blank-tolerant inputs** — empty strings from Flow are treated as unset instead of throwing invalid-ID errors
 - **Duplicate-rule parity** — alert-mode duplicate rules block `Database.convertLead()` in the API context even though the standard convert screen saves through them; this action restores that parity via `DuplicateRuleHeader.allowSave` (block-mode rules still block)
 - **Inline renames** — optional Account Name, Contact First/Last Name, and Opportunity Name inputs rename the records right after conversion, like the standard convert screen's editable fields
-- **Match suggestions** — a second action, **Find Lead Conversion Matches**, runs your org's duplicate/matching rules against the Lead and returns existing Accounts and Contacts to convert into (with an exact name/email fallback that also covers orgs with no active rules), including ready-to-display HTML link lists so users can click through and review each match
+- **Match suggestions** — a second action, **Find Lead Conversion Matches**, runs your org's own duplicate/matching rules against the Lead and returns the existing Accounts and Contacts they match, including ready-to-display HTML link lists so users can click through and review each match before picking one
 - **Record types** — optional Account/Contact/Opportunity Record Type inputs (Id, DeveloperName, or label) set the record type after conversion; `Database.convertLead()` itself offers no record-type control. Uses dynamic field access so the package still deploys in orgs with no record types
 - **Person Account aware, without requiring Person Accounts** — a Lead with no Company converts to a Person Account (platform behavior); this action detects the result, resolves a Person Account's person Contact for you, and redirects the Account Name rename to the person's name fields. Every Person Account field reference is dynamic and runtime-gated, so the package installs and runs identically in orgs **with or without** Person Accounts enabled
 
@@ -68,7 +68,13 @@ The companion action replicates the standard convert screen's duplicate suggesti
 | Is Person Lead | TRUE when the Lead has no Company, so it converts to a Person Account |
 | Account/Contact Choice Options | Option-shell record collections for radio/picklist collection choice sets: display the `Name` field (a clickable link label with context) and use `AccountNumber` as the value (the matched record Id). Because the href embeds the Id, flows can recover the exact Id from the label with `MID(label, FIND("href=\"/001", label) + 7, 18)` in runtimes that return choice labels instead of values |
 
-Matching runs `Datacloud.FindDuplicates` against your org's active duplicate rules using an in-memory Account (from the Lead's Company/Phone) and Contact (from the Lead's name/email/phone). When rules are missing or find nothing, an exact-match fallback fills in: Account by name, Contact by email then by name. `Max Results` caps each list (default 5).
+Matching runs `Datacloud.FindDuplicates` against your org's **active duplicate rules**, using throwaway in-memory records shaped from the Lead — an Account from Company and Phone, a Contact from name, email, and phone. Nothing is ever inserted; the action only reads. `Max Results` caps each list (default 5).
+
+Suggestions come from your duplicate rules and nothing else. That is deliberate: matching belongs where admins already configure it, in Setup, so the action never imposes its own opinion about what "similar" means. If a lead you expect to match returns nothing, the rule didn't match it — for example, the Standard Account Duplicate Rule needs address data, so an identical Account **name** alone won't match. Tune the matching rule, or build the matching you want with Get Records elements and pass the result to **Convert Lead** directly.
+
+A Lead with no Company (a person lead) is left out of the account pass entirely, since there is no account name to match on. Contact matching still runs, and in a Person Account org it will surface person Contacts.
+
+Bulk-safe: whatever the batch size, the action uses a constant handful of queries — one for the Leads, one duplicate-rule call per object, and one lookup per object to load the matched records.
 
 ## Person Accounts
 
