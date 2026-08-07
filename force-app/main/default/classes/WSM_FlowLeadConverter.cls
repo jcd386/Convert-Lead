@@ -7,7 +7,6 @@ public with sharing class WSM_FlowLeadConverter {
     private static Integer chunkSize = CONVERT_CHUNK_SIZE;
 
     private static Boolean paEnabledCache;
-    private static Boolean canConvertCache;
 
     public class ConvertInputException extends Exception {}
 
@@ -20,20 +19,6 @@ public with sharing class WSM_FlowLeadConverter {
             paEnabledCache = Schema.SObjectType.Account.fields.getMap().containsKey('ispersonaccount');
         }
         return paEnabledCache;
-    }
-
-    // Apex runs in system context, so Database.convertLead succeeds even for a user
-    // without "Convert Leads". Callers who want the platform's own gate can opt in.
-    private static Boolean runningUserCanConvertLeads() {
-        if (canConvertCache == null) {
-            canConvertCache = ![
-                SELECT Id FROM PermissionSetAssignment
-                WHERE AssigneeId = :UserInfo.getUserId()
-                AND PermissionSet.PermissionsConvertLeads = true
-                LIMIT 1
-            ].isEmpty();
-        }
-        return canConvertCache;
     }
 
     private static Map<Id, SObject> loadAccountPersonInfo(Set<Id> accountIds) {
@@ -110,15 +95,6 @@ public with sharing class WSM_FlowLeadConverter {
             convertedStatuses.put(ls.MasterLabel.toLowerCase(), ls.MasterLabel);
         }
 
-        Boolean anyEnforcement = false;
-        for (WSM_FlowLeadConverterInputWrapper input : inputList) {
-            if (input.enforceUserPermissions == true) {
-                anyEnforcement = true;
-                break;
-            }
-        }
-        Boolean userCanConvert = anyEnforcement ? runningUserCanConvertLeads() : true;
-
         // Pre-load target accounts so a Person Account can be supplied on its own.
         Set<Id> targetAccountIds = new Set<Id>();
         for (WSM_FlowLeadConverterInputWrapper input : inputList) {
@@ -143,11 +119,6 @@ public with sharing class WSM_FlowLeadConverter {
             output.isSuccess = false;
             output.isPersonAccount = false;
             outputList.add(output);
-
-            if (input.enforceUserPermissions == true && !userCanConvert) {
-                output.errorMessage = 'You do not have the "Convert Leads" permission.';
-                continue;
-            }
 
             Boolean statusBlank = String.isBlank(input.ConvertedStatusName);
             String resolvedStatus;
@@ -334,16 +305,12 @@ public with sharing class WSM_FlowLeadConverter {
         Map<Id, SObject> oppUpdates = new Map<Id, SObject>();
         Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId = new Map<Id, List<WSM_FlowLeadConverterOutputWrapper>>();
         RecordTypeCatalog catalog = loadRecordTypes(inputList);
-        Boolean enforce = false;
 
         for (Integer i = 0; i < inputList.size(); i++) {
             WSM_FlowLeadConverterInputWrapper input = inputList[i];
             WSM_FlowLeadConverterOutputWrapper output = outputList[i];
             if (output.isSuccess != true) {
                 continue;
-            }
-            if (input.enforceUserPermissions == true) {
-                enforce = true;
             }
             Boolean acctIsPerson = isPersonAccount(convertedAccountInfo, output.accountId);
 
@@ -417,9 +384,9 @@ public with sharing class WSM_FlowLeadConverter {
             }
         }
 
-        applyUpdateBatch(accountUpdates.values(), outputsByRecordId, enforce);
-        applyUpdateBatch(contactUpdates.values(), outputsByRecordId, enforce);
-        applyUpdateBatch(oppUpdates.values(), outputsByRecordId, enforce);
+        applyUpdateBatch(accountUpdates.values(), outputsByRecordId);
+        applyUpdateBatch(contactUpdates.values(), outputsByRecordId);
+        applyUpdateBatch(oppUpdates.values(), outputsByRecordId);
     }
 
     // Two Leads in one batch can converge on the same Account or Opportunity. First
@@ -522,56 +489,11 @@ public with sharing class WSM_FlowLeadConverter {
 
     private static void applyUpdateBatch(
         List<SObject> updates,
-        Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId,
-        Boolean enforceUserPermissions
+        Map<Id, List<WSM_FlowLeadConverterOutputWrapper>> outputsByRecordId
     ) {
         if (updates.isEmpty()) {
             return;
         }
-        // The post-conversion writes run in system context like the rest of Apex.
-        // When the caller opts in, drop any field the running user cannot edit and
-        // tell them, rather than quietly writing past their field-level security.
-        if (enforceUserPermissions) {
-            SObjectAccessDecision decision;
-            try {
-                // enforceRootObjectCRUD must stay FALSE: with it on, a user who lacks
-                // object-level access gets a NoAccessException thrown here, which would
-                // fault the flow AFTER the conversion has already committed. Passing
-                // false strips the fields instead, and any object-level denial then
-                // surfaces through the normal DML failure path below.
-                decision = Security.stripInaccessible(AccessType.UPDATABLE, updates, false);
-            } catch (Exception e) {
-                String stripWarning = 'Converted, but post-conversion updates were skipped: ' + e.getMessage();
-                for (SObject rec : updates) {
-                    if (outputsByRecordId.containsKey(rec.Id)) {
-                        for (WSM_FlowLeadConverterOutputWrapper output : outputsByRecordId.get(rec.Id)) {
-                            addWarning(output, stripWarning);
-                        }
-                    }
-                }
-                return;
-            }
-            Map<String, Set<String>> removed = decision.getRemovedFields();
-            if (!removed.isEmpty()) {
-                List<String> parts = new List<String>();
-                for (String obj : removed.keySet()) {
-                    parts.add(obj + ': ' + String.join(new List<String>(removed.get(obj)), ', '));
-                }
-                String warning = 'Field-level security stopped these post-conversion updates - ' + String.join(parts, '; ') + '.';
-                for (SObject rec : updates) {
-                    if (outputsByRecordId.containsKey(rec.Id)) {
-                        for (WSM_FlowLeadConverterOutputWrapper output : outputsByRecordId.get(rec.Id)) {
-                            addWarning(output, warning);
-                        }
-                    }
-                }
-            }
-            updates = decision.getRecords();
-            if (updates.isEmpty()) {
-                return;
-            }
-        }
-
         Database.DMLOptions renameOptions = new Database.DMLOptions();
         renameOptions.optAllOrNone = false;
         renameOptions.duplicateRuleHeader.allowSave = true;

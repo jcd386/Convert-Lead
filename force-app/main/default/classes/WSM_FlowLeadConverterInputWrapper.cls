@@ -50,7 +50,4 @@ public with sharing class WSM_FlowLeadConverterInputWrapper {
 
     @InvocableVariable(required=false label='Opportunity Record Type' description='Record Type to set on the Opportunity after conversion. Accepts an Id, DeveloperName, or label. Leave blank for the default.')
     public String opportunityRecordType;
-
-    @InvocableVariable(required=false label='Enforce User Permissions' description='TRUE requires the running user to have the "Convert Leads" permission and applies their field-level security to post-conversion updates. Defaults to FALSE, which converts in system context like all Apex.')
-    public Boolean enforceUserPermissions;
 }

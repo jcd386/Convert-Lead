@@ -521,36 +521,6 @@ private class WSM_FlowLeadConverter_Test {
     }
 
     @isTest
-    static void testEnforceUserPermissionsBlocksUserWithoutConvertLeads() {
-        List<Profile> noConvert = [SELECT Id FROM Profile WHERE Name = 'Standard Platform User' LIMIT 1];
-        if (noConvert.isEmpty()) {
-            return;
-        }
-        User u = new User(Alias = 'nocnv', Email = 'noconvert@wsmprobe.example.com',
-            EmailEncodingKey = 'UTF-8', LastName = 'NoConvert', LanguageLocaleKey = 'en_US',
-            LocaleSidKey = 'en_US', ProfileId = noConvert[0].Id, TimeZoneSidKey = 'America/Chicago',
-            Username = 'noconvert' + DateTime.now().getTime() + '@wsmprobe.example.com');
-        insert u;
-
-        Lead l = makeLead('PermCheck', 'WSM Perm Check Co');
-
-        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
-        input.leadId = l.Id;
-        input.doNotCreateOpp = true;
-        input.enforceUserPermissions = true;
-
-        Test.startTest();
-        List<WSM_FlowLeadConverterOutputWrapper> outputs;
-        System.runAs(u) {
-            outputs = WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
-        }
-        Test.stopTest();
-
-        System.assertEquals(false, outputs[0].isSuccess, 'a user without Convert Leads must be stopped when enforcing');
-        System.assert(outputs[0].errorMessage != null && outputs[0].errorMessage.contains('Convert Leads'), outputs[0].errorMessage);
-    }
-
-    @isTest
     static void testPersonAccountIgnoresSuppliedContactId() {
         if (!personAccountsEnabled()) {
             return;
@@ -592,34 +562,4 @@ private class WSM_FlowLeadConverter_Test {
         System.assert(outputs[0].warningMessage != null && outputs[0].warningMessage.contains('Person Account'), 'warning: ' + outputs[0].warningMessage);
     }
 
-    @isTest
-    static void testEnforcementStillAppliesRenamesForAPermittedUser() {
-        String workingStatus = findWorkingConvertedStatus();
-        if (workingStatus == null) {
-            return;
-        }
-        Lead l = makeLead('EnforceOk', 'WSM Enforce Ok Co');
-
-        WSM_FlowLeadConverterInputWrapper input = new WSM_FlowLeadConverterInputWrapper();
-        input.leadId = l.Id;
-        input.doNotCreateOpp = true;
-        input.ConvertedStatusName = workingStatus;
-        input.enforceUserPermissions = true;
-        input.accountName = 'Renamed Under Enforcement';
-        input.contactFirstName = 'Enforced';
-
-        Test.startTest();
-        List<WSM_FlowLeadConverterOutputWrapper> outputs =
-            WSM_FlowLeadConverter.convertLead(new List<WSM_FlowLeadConverterInputWrapper>{ input });
-        Test.stopTest();
-
-        System.assertEquals(true, outputs[0].isSuccess, 'error: ' + outputs[0].errorMessage);
-        // The running user can edit these fields, so stripInaccessible must pass them
-        // through untouched rather than silently dropping the rename.
-        SObject acct = Database.query('SELECT Name FROM Account WHERE Id = \'' + outputs[0].accountId + '\'')[0];
-        System.assertEquals('Renamed Under Enforcement', (String) acct.get('Name'),
-            'FLS enforcement must not swallow a rename the user is allowed to make');
-        SObject con = Database.query('SELECT FirstName FROM Contact WHERE Id = \'' + outputs[0].contactId + '\'')[0];
-        System.assertEquals('Enforced', (String) con.get('FirstName'));
-    }
 }

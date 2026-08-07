@@ -40,7 +40,6 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 | Account Record Type | No | Record Type set on the Account after conversion — Id, DeveloperName, or label. Person/business type mismatches are caught with a warning instead of a platform error |
 | Contact Record Type | No | Record Type set on the Contact after conversion — Id, DeveloperName, or label |
 | Opportunity Record Type | No | Record Type set on the Opportunity after conversion — Id, DeveloperName, or label |
-| Enforce User Permissions | No | TRUE requires the running user to hold **Convert Leads** and applies their field-level security to post-conversion updates. Defaults to FALSE — see Security below |
 
 ## Outputs
 
@@ -48,7 +47,7 @@ Flow-invocable Apex action to convert Salesforce Leads. Exposes the full `Databa
 |--------|-------------|
 | Success | TRUE if the Lead converted |
 | Error Message | Populated when Success is FALSE |
-| Warning Message | Populated when the Lead converted but something after it needs attention — a rename that failed, a field blocked by field-level security, an ignored input, or a value another Lead in the same batch overrode |
+| Warning Message | Populated when the Lead converted but something after it needs attention — a rename that failed, an ignored input, or a value another Lead in the same batch overrode |
 | Account Id | Account the Lead was converted into |
 | Contact Id | Contact the Lead was converted into |
 | Opportunity Id | Opportunity created or converted into (null when skipped) |
@@ -72,14 +71,12 @@ If you build your own screen for this, note that `Lead.Company` is nillable **on
 
 ## Security
 
-Like all Apex, this action runs in **system context**. Two consequences worth understanding before you expose it:
+Like all Apex, this action runs in **system context**, and it assumes the flow calling it is one you trust:
 
-- `Database.convertLead()` succeeds even for a user who does **not** have the **Convert Leads** permission. Anyone who can run a Flow containing this action can convert leads. That is sometimes exactly what you want — removing the permission hides the standard Convert button and the Path's convert option, leaving your flow as the only route — but it is a privilege path either way.
+- `Database.convertLead()` succeeds even for a user who does **not** have the **Convert Leads** permission, so anyone who can run a Flow containing this action can convert leads. That is sometimes exactly what you want — removing the permission hides the standard Convert button and the Path's convert option, leaving your flow as the only route — but decide it deliberately.
 - The post-conversion renames and record-type writes bypass field-level security, so a user without edit access to `Account.Name` can still rename through the action.
 
-Set **Enforce User Permissions** to TRUE to opt out of both: the action then refuses to convert for a user lacking **Convert Leads**, and strips any field the running user cannot edit from the post-conversion updates, reporting what it dropped on `warningMessage`. It defaults to FALSE so existing behavior is unchanged.
-
-Enforcement never throws. Field stripping deliberately runs without root-object CRUD enforcement, because that variant raises `NoAccessException` — which would fault the flow *after* the conversion had already committed, losing every result for work that actually happened. Object-level denials surface through the normal update-failure warning instead. Note also that Salesforce makes **Convert Leads** depend on Create/Edit/Read for Account, Contact, and Lead, so a user who can convert always has those; Opportunity access is *not* part of that dependency, which is why the Opportunity write path is the one that can be blocked.
+If you need per-user enforcement, gate the flow itself rather than the action — check the running user's permission in the flow, or restrict who can run it.
 
 ## Why the status auto-detect matters
 
