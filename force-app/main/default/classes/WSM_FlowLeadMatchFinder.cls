@@ -15,7 +15,8 @@ public with sharing class WSM_FlowLeadMatchFinder {
         Map<Id, Lead> leadsById = leadIds.isEmpty()
             ? new Map<Id, Lead>()
             : new Map<Id, Lead>([
-                SELECT Id, FirstName, LastName, Company, Email, Phone
+                SELECT Id, FirstName, LastName, Company, Email, Phone, MobilePhone, Title, Website,
+                       Street, City, State, PostalCode, Country
                 FROM Lead WHERE Id IN :leadIds
             ]);
 
@@ -47,24 +48,43 @@ public with sharing class WSM_FlowLeadMatchFinder {
             // where Person Accounts are enabled.
             output.isPersonLead = String.isBlank(ld.Company);
 
-            // Matching runs against throwaway in-memory records shaped from the Lead.
-            // Nothing here is ever inserted. A company-less lead has no account name
-            // to match on, so it is left out of the account pass entirely.
+            // Matching runs against throwaway in-memory records shaped from the Lead,
+            // carrying the same fields lead conversion itself maps across so the org's
+            // matching rules have everything they key on (the standard Account rule,
+            // for one, needs address data and won't match on name alone). Nothing here
+            // is ever inserted. A company-less lead has no account name to match on,
+            // so it is left out of the account pass entirely.
             if (String.isNotBlank(ld.Company)) {
-                syntheticAccounts.add(new Account(Name = ld.Company, Phone = ld.Phone));
+                syntheticAccounts.add(new Account(
+                    Name = ld.Company,
+                    Phone = ld.Phone,
+                    Website = ld.Website,
+                    BillingStreet = ld.Street,
+                    BillingCity = ld.City,
+                    BillingState = ld.State,
+                    BillingPostalCode = ld.PostalCode,
+                    BillingCountry = ld.Country
+                ));
                 accountRows.add(i);
             }
             syntheticContacts.add(new Contact(
                 FirstName = ld.FirstName,
                 LastName = ld.LastName,
                 Email = ld.Email,
-                Phone = ld.Phone
+                Phone = ld.Phone,
+                MobilePhone = ld.MobilePhone,
+                Title = ld.Title,
+                MailingStreet = ld.Street,
+                MailingCity = ld.City,
+                MailingState = ld.State,
+                MailingPostalCode = ld.PostalCode,
+                MailingCountry = ld.Country
             ));
             contactRows.add(i);
         }
 
-        Map<Integer, Set<Id>> accountIdsByRow = runFindDuplicates(syntheticAccounts, accountRows);
-        Map<Integer, Set<Id>> contactIdsByRow = runFindDuplicates(syntheticContacts, contactRows);
+        Map<Integer, Set<Id>> accountIdsByRow = runFindDuplicates(syntheticAccounts, accountRows, Account.SObjectType);
+        Map<Integer, Set<Id>> contactIdsByRow = runFindDuplicates(syntheticContacts, contactRows, Contact.SObjectType);
 
         // Fetch every matched record in one query per object, whatever the batch size.
         Set<Id> allAccountIds = new Set<Id>();
@@ -128,7 +148,15 @@ public with sharing class WSM_FlowLeadMatchFinder {
     // Returns matched record Ids keyed by the row each synthetic record came from.
     // A row with no matches is simply absent. If duplicate rules can't be evaluated
     // the result is empty - no suggestions, never an error.
-    private static Map<Integer, Set<Id>> runFindDuplicates(List<SObject> records, List<Integer> rowIndexes) {
+    //
+    // Results are filtered to expectedType: a duplicate rule can span objects (the
+    // standard Contact rule also matches Contacts against Leads), so a Contact search
+    // will otherwise hand back Lead Ids - including the very Lead being converted.
+    private static Map<Integer, Set<Id>> runFindDuplicates(
+        List<SObject> records,
+        List<Integer> rowIndexes,
+        Schema.SObjectType expectedType
+    ) {
         Map<Integer, Set<Id>> byRow = new Map<Integer, Set<Id>>();
         if (records.isEmpty()) {
             return byRow;
@@ -140,7 +168,10 @@ public with sharing class WSM_FlowLeadMatchFinder {
                 for (Datacloud.DuplicateResult dr : dupResults[i].getDuplicateResults()) {
                     for (Datacloud.MatchResult mr : dr.getMatchResults()) {
                         for (Datacloud.MatchRecord rec : mr.getMatchRecords()) {
-                            ids.add(rec.getRecord().Id);
+                            Id matchedId = rec.getRecord().Id;
+                            if (matchedId != null && matchedId.getSObjectType() == expectedType) {
+                                ids.add(matchedId);
+                            }
                         }
                     }
                 }

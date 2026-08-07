@@ -68,11 +68,13 @@ The companion action replicates the standard convert screen's duplicate suggesti
 | Is Person Lead | TRUE when the Lead has no Company, so it converts to a Person Account |
 | Account/Contact Choice Options | Option-shell record collections for radio/picklist collection choice sets: display the `Name` field (a clickable link label with context) and use `AccountNumber` as the value (the matched record Id). Because the href embeds the Id, flows can recover the exact Id from the label with `MID(label, FIND("href=\"/001", label) + 7, 18)` in runtimes that return choice labels instead of values |
 
-Matching runs `Datacloud.FindDuplicates` against your org's **active duplicate rules**, using throwaway in-memory records shaped from the Lead — an Account from Company and Phone, a Contact from name, email, and phone. Nothing is ever inserted; the action only reads. `Max Results` caps each list (default 5).
+Matching runs `Datacloud.FindDuplicates` against your org's **active duplicate rules**, using throwaway in-memory records shaped from the Lead. Those records carry the same fields lead conversion itself maps across — Company, Phone, Website and the address on the Account side; name, email, phone, mobile, title and the address on the Contact side — so your matching rules have everything they key on. (The Standard Account Matching Rule, for one, needs address data and will not match on name alone.) Nothing is ever inserted; the action only reads. `Max Results` caps each list (default 5).
+
+Results are filtered to the object being searched. Duplicate rules can span objects — the standard Contact rule also matches Contacts against Leads — so an unfiltered search hands back Lead Ids, including the Lead you are converting.
 
 Suggestions come from your duplicate rules and nothing else. That is deliberate: matching belongs where admins already configure it, in Setup, so the action never imposes its own opinion about what "similar" means. If a lead you expect to match returns nothing, the rule didn't match it — for example, the Standard Account Duplicate Rule needs address data, so an identical Account **name** alone won't match. Tune the matching rule, or build the matching you want with Get Records elements and pass the result to **Convert Lead** directly.
 
-A Lead with no Company (a person lead) is left out of the account pass entirely, since there is no account name to match on. Contact matching still runs, and in a Person Account org it will surface person Contacts.
+A Lead with no Company (a person lead) is left out of the account pass entirely, since there is no account name to match on. Contact matching still runs. Note that Person Accounts are matched by the **Standard Person Account Duplicate Rule**, which is inactive in a new org — until you activate it (and its matching rule) in Setup, person leads return no suggestions.
 
 Bulk-safe: whatever the batch size, the action uses a constant handful of queries — one for the Leads, one duplicate-rule call per object, and one lookup per object to load the matched records.
 
